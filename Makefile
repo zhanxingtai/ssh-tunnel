@@ -7,6 +7,9 @@ GO ?= go
 # Windows 自带原生窗口（纯 Go 的 WebView2，无需 cgo）。
 # Linux/macOS 的原生窗口需要 webview/webview_go（cgo + gtk3 + webkit2gtk-4.0），
 # 用 build-webview 目标单独构建；默认构建走系统浏览器。
+#
+# -H windowsgui 让 Windows 以 GUI 子系统启动，程序不分配控制台，
+# 免得开出一个黑窗口。链接器只在 PE 文件上认这个参数，其它平台会忽略它。
 .PHONY: all build build-webview build-windows build-darwin build-all test vet fmt check clean install icons
 
 all: build
@@ -18,10 +21,10 @@ icons:
 	$(GO) run scripts/gensyso/main.go
 
 build:
-	$(GO) build -o $(BIN)/$(BINARY) $(PKG)
+	$(GO) build -ldflags "-H windowsgui" -o $(BIN)/$(BINARY) $(PKG)
 
 build-webview:
-	$(GO) build -tags webview -o $(BIN)/$(BINARY) $(PKG)
+	$(GO) build -tags webview -ldflags "-H windowsgui" -o $(BIN)/$(BINARY) $(PKG)
 
 build-windows:
 	GOOS=windows GOARCH=amd64 $(GO) build -ldflags "-H windowsgui" -o $(BIN)/$(BINARY).exe $(PKG)
