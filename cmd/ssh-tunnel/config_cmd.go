@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"io"
+	"os"
 	"strings"
 
 	"ssh-tunnel/internal/config"
@@ -92,6 +94,30 @@ func configList(args []string) error {
 	return nil
 }
 
+// hostShow is the representation of a host printed by "config show".
+//
+// The credentials are never printed: the list tells which ones are stored.
+type hostShow struct {
+	config.Host
+	// Credentials lists the kinds of credential that are stored.
+	Credentials []string `json:"credentials,omitempty"`
+}
+
+// storedCredentials lists the kinds of credential that are stored for a host.
+func storedCredentials(h *config.Host) []string {
+	out := make([]string, 0, 3)
+	if h.Auth.Password != "" {
+		out = append(out, "password")
+	}
+	if h.Auth.KeyText != "" {
+		out = append(out, "keyText")
+	}
+	if h.Auth.Passphrase != "" {
+		out = append(out, "passphrase")
+	}
+	return out
+}
+
 // configShow prints one host or one tunnel as JSON.
 func configShow(args []string) error {
 	if len(args) == 0 {
@@ -108,7 +134,7 @@ func configShow(args []string) error {
 	applyLanguage(cfg)
 	var value any
 	if h, ok := cfg.HostByRef(args[0]); ok {
-		value = h
+		value = hostShow{Host: *h, Credentials: storedCredentials(h)}
 	} else if t, ok := cfg.TunnelByRef(args[0]); ok {
 		value = t
 	} else {
@@ -131,7 +157,9 @@ type hostFlags struct {
 	auth            string
 	keyPath         string
 	password        string
+	passwordEnv     string
 	passphrase      string
+	passphraseEnv   string
 	autoReconnect   bool
 	noAutoReconnect bool
 	insecureHostKey bool
@@ -146,8 +174,10 @@ func (f *hostFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&f.user, "user", "", "SSH 用户")
 	fs.StringVar(&f.auth, "auth", "", "认证方式：key / password / agent")
 	fs.StringVar(&f.keyPath, "key", "", "私钥路径")
-	fs.StringVar(&f.password, "password", "", "密码")
-	fs.StringVar(&f.passphrase, "passphrase", "", "私钥口令")
+	fs.StringVar(&f.password, "password", "", "密码（- 表示从标准输入读取）")
+	fs.StringVar(&f.passwordEnv, "password-env", "", "从指定环境变量读取密码")
+	fs.StringVar(&f.passphrase, "passphrase", "", "私钥口令（- 表示从标准输入读取）")
+	fs.StringVar(&f.passphraseEnv, "passphrase-env", "", "从指定环境变量读取私钥口令")
 	fs.BoolVar(&f.autoReconnect, "auto-reconnect", true, "断线自动重连")
 	fs.BoolVar(&f.noAutoReconnect, "no-auto-reconnect", false, "关闭断线自动重连")
 	fs.BoolVar(&f.insecureHostKey, "insecure-host-key", false, "跳过主机密钥校验")
@@ -194,10 +224,32 @@ func (f *hostFlags) apply(h *config.Host, given flagSet) error {
 		h.Auth.KeyPath = f.keyPath
 	}
 	if given["password"] {
-		h.Auth.Password = f.password
+		value, err := secretValue(f.password)
+		if err != nil {
+			return err
+		}
+		h.Auth.Password = value
+	}
+	if given["password-env"] {
+		value, err := secretFromEnv(f.passwordEnv)
+		if err != nil {
+			return err
+		}
+		h.Auth.Password = value
 	}
 	if given["passphrase"] {
-		h.Auth.Passphrase = f.passphrase
+		value, err := secretValue(f.passphrase)
+		if err != nil {
+			return err
+		}
+		h.Auth.Passphrase = value
+	}
+	if given["passphrase-env"] {
+		value, err := secretFromEnv(f.passphraseEnv)
+		if err != nil {
+			return err
+		}
+		h.Auth.Passphrase = value
 	}
 	if given["auto-reconnect"] {
 		h.AutoReconnect = f.autoReconnect
@@ -547,6 +599,49 @@ func givenFlags(fs *flag.FlagSet) flagSet {
 	given := flagSet{}
 	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
 	return given
+}
+
+// secretValue returns the value of a credential given on the command line.
+// The value "-" reads the credential from the standard input, so that it does
+// not show up in the list of the processes of the machine.
+func secretValue(value string) (string, error) {
+	if value != "-" {
+		return value, nil
+	}
+	return secretFromStdin()
+}
+
+// stdinRead tells whether the standard input was already read. It can only
+// be read once: two credentials cannot come from the same stream.
+var stdinRead bool
+
+// secretFromStdin reads a credential from the standard input.
+func secretFromStdin() (string, error) {
+	if stdinRead {
+		return "", i18n.E("err.stdin_used")
+	}
+	stdinRead = true
+	return secretFromReader(os.Stdin)
+}
+
+// secretFromReader reads a credential from a reader. The last line break is
+// removed, so that the output of a command can be piped in.
+func secretFromReader(r io.Reader) (string, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return "", i18n.E("err.read_stdin", err)
+	}
+	value := strings.TrimSuffix(string(data), "\n")
+	return strings.TrimSuffix(value, "\r"), nil
+}
+
+// secretFromEnv reads a credential from an environment variable.
+func secretFromEnv(name string) (string, error) {
+	value, ok := os.LookupEnv(name)
+	if !ok {
+		return "", i18n.E("err.env_var_missing", name)
+	}
+	return value, nil
 }
 
 // flagSet records the flags that were set on the command line.

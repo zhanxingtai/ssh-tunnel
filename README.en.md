@@ -91,9 +91,14 @@ Tunnel types:
 
 Authentication:
 
-- `key`: private key; `keyPath` points to the key file, and `passphrase` is optional;
-- `password`: password stored in plain text in the configuration file (mode 0600);
+- `key`: private key; `keyPath` points to the key file, and the passphrase is optional;
+- `password`: password;
 - `agent`: use the ssh-agent pointed to by `SSH_AUTH_SOCK`.
+
+Passwords, private key texts and passphrases are **not kept in the configuration file**. They
+live in the keyring of the system (Windows credential manager, macOS keychain, Linux secret
+service); a machine without a usable keyring falls back to the encrypted file `secrets.enc`
+next to the configuration file. See [Security notes](#security-notes).
 
 ### 3. Usage
 
@@ -146,6 +151,23 @@ ssh-tunnel config tunnel remove website
 Host options: `--name`, `--host`, `--port`, `--user`, `--auth`, `--key`, `--password`,
 `--passphrase`, `--auto-reconnect`, `--no-auto-reconnect`, `--insecure-host-key`.
 
+Ways of giving a credential (the last two keep it out of the process list):
+
+```bash
+# 1) directly (it shows up in the process list)
+ssh-tunnel config host add prod --host 10.0.0.10 --user root --password PASSWORD
+
+# 2) from the standard input
+echo -n PASSWORD | ssh-tunnel config host add prod --host 10.0.0.10 --user root --password -
+
+# 3) from an environment variable
+SSH_TUNNEL_PASSWORD=PASSWORD ssh-tunnel config host add prod \
+  --host 10.0.0.10 --user root --password-env SSH_TUNNEL_PASSWORD
+```
+
+The passphrase works the same way: `--passphrase`, `--passphrase -`, `--passphrase-env <name>`.
+`config show` lists the kinds of credential that are stored, never their values.
+
 Tunnel options: `--name`, `--host`, `--type`, `--listen`, `--target`, `--auto-start`,
 `--no-auto-start`.
 
@@ -191,7 +213,8 @@ All user data lives in `~/.config/ssh-tunnel/`:
 
 | File | Description |
 | --- | --- |
-| `config.json` | Configuration |
+| `config.json` | Configuration (without passwords and private keys) |
+| `secrets.enc` / `secrets.key` | The encrypted credentials and their key, used by the fallback |
 | `ssh-tunnel.log` | Runtime log |
 | `ssh-tunnel.lock` | Single-instance lock (unix) |
 | `runtime.json` | Running instance information (UI address, PID) |
@@ -200,8 +223,21 @@ On Windows this is `C:\Users\<user>\.config\ssh-tunnel\`.
 
 ## Security notes
 
-- Passwords in the configuration file are plain text and the file mode is 0600; prefer keys or
-  ssh-agent;
+- Passwords, private key texts and passphrases are kept in the keyring of the system (Windows
+  credential manager, macOS keychain, Linux secret service), not in the configuration file. A
+  machine without a usable keyring stores them in the AES-GCM encrypted file `secrets.enc` of
+  the configuration directory (its key is `secrets.key`, mode 0600). The environment variable
+  `SSH_TUNNEL_KEYRING=0` keeps every credential out of the keyring.
+  The plain text credentials of the older configuration files are moved to the keyring and
+  removed from the file when the program starts;
+- The local interface of the graphical mode needs a session token (the address that opens the
+  page carries a ticket that is valid for five minutes; the session token itself lives in a
+  cookie of the browser) and checks the origin of the requests; the credentials themselves are
+  never sent to the browser;
+- On the command line, `--password -` (standard input) and `--password-env <name>`
+  (environment variable) keep the password out of the process list;
+- The configuration file has mode 0600 and holds only addresses, user names and key paths;
+  prefer keys or ssh-agent;
 - The first connection to an unknown host is written to `~/.ssh/known_hosts` (TOFU); later key
   changes are rejected;
 - `insecureHostKey: true` skips verification; use it only for temporary testing;

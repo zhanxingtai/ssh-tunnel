@@ -88,9 +88,13 @@ ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519
 
 认证方式：
 
-- `key`：私钥，`keyPath` 指向私钥文件，`passphrase` 可选；
-- `password`：密码，明文保存在权限 0600 的配置文件中；
+- `key`：私钥，`keyPath` 指向私钥文件，私钥口令可选；
+- `password`：密码；
 - `agent`：使用 `SSH_AUTH_SOCK` 指向的 ssh-agent。
+
+密码、私钥内容与私钥口令**不保存在配置文件里**，而是放在系统密钥环中
+（Windows 凭据管理器 / macOS 钥匙串 / Linux Secret Service）；系统没有可用密钥环时，
+退回到配置目录下的加密文件 `secrets.enc`。详见 [安全说明](#安全说明)。
 
 ### 3. 使用
 
@@ -141,6 +145,24 @@ ssh-tunnel config tunnel remove website
 主机选项：`--name`、`--host`、`--port`、`--user`、`--auth`、`--key`、`--password`、
 `--passphrase`、`--auto-reconnect`、`--no-auto-reconnect`、`--insecure-host-key`。
 
+凭据的给法（三选一，后者不会把密码留在进程列表里）：
+
+```bash
+# 1) 直接给（会出现在进程列表里）
+ssh-tunnel config host add prod --host 10.0.0.10 --user root --password 密码
+
+# 2) 从标准输入读
+echo -n 密码 | ssh-tunnel config host add prod --host 10.0.0.10 --user root --password -
+
+# 3) 从环境变量读
+SSH_TUNNEL_PASSWORD=密码 ssh-tunnel config host add prod \
+  --host 10.0.0.10 --user root --password-env SSH_TUNNEL_PASSWORD
+```
+
+私钥口令同理：`--passphrase`、`--passphrase -`、`--passphrase-env <变量名>`。
+
+`config show` 只列出存了哪几类凭据，不打印凭据本身。
+
 隧道选项：`--name`、`--host`、`--type`、`--listen`、`--target`、`--auto-start`、
 `--no-auto-start`。
 
@@ -184,7 +206,8 @@ systemd 由服务管理器启停；cron 与 desktop 方式直接启停后台进�
 
 | 文件 | 说明 |
 | --- | --- |
-| `config.json` | 配置 |
+| `config.json` | 配置（不含密码与私钥） |
+| `secrets.enc` / `secrets.key` | 加密文件兜底时存放的凭据及其密钥 |
 | `ssh-tunnel.log` | 运行日志 |
 | `ssh-tunnel.lock` | 单实例锁（unix） |
 | `runtime.json` | 运行实例信息（界面地址、PID） |
@@ -193,7 +216,16 @@ Windows 对应 `C:\Users\<用户名>\.config\ssh-tunnel\`。
 
 ## 安全说明
 
-- 配置文件中的密码为明文，文件权限 0600；建议优先使用私钥或 ssh-agent；
+- 密码、私钥内容与私钥口令存在系统密钥环里（Windows 凭据管理器 / macOS 钥匙串 /
+  Linux Secret Service），不在配置文件中；系统没有可用密钥环时，存到配置目录下的
+  AES-GCM 加密文件 `secrets.enc`（密钥在 `secrets.key`，权限 0600）。
+  设置环境变量 `SSH_TUNNEL_KEYRING=0` 可以完全不用密钥环。
+  升级时旧配置文件里的明文凭据会自动搬进密钥环，并从配置文件里删除；
+- 图形界面的本地接口需要会话令牌（打开页面的地址里带的是一张 5 分钟有效的短时票据，
+  换来的会话令牌存在浏览器的 Cookie 里），并校验请求来源，凭据本身不会发给浏览器；
+- 命令行里可以用 `--password -`（从标准输入读）或 `--password-env <变量名>`
+  （从环境变量读），避免密码出现在进程列表中；
+- 配置文件权限 0600，里面只有地址、用户名与私钥路径；建议优先使用私钥或 ssh-agent；
 - 首次连接未知主机时写入 `~/.ssh/known_hosts`（TOFU），之后密钥变化会被拒绝；
 - `insecureHostKey: true` 会跳过校验，仅建议临时测试使用；
 - 远程端口映射默认只监听 `127.0.0.1`，监听 `0.0.0.0` 前请确认远端防火墙。

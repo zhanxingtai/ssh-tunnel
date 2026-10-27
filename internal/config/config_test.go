@@ -1,11 +1,22 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"ssh-tunnel/internal/secret"
 )
+
+// TestMain keeps the tests away from the keyring of the system: the
+// credentials of the tests stay in the encrypted file of the test directory.
+func TestMain(m *testing.M) {
+	os.Setenv("SSH_TUNNEL_KEYRING", "0")
+	os.Exit(m.Run())
+}
 
 func TestSaveLoadRoundTrip(t *testing.T) {
 	dir := t.TempDir()
@@ -322,5 +333,258 @@ func TestMigrateLegacyProfiles(t *testing.T) {
 	counts := cfg.ForwardCounts(h.ID)
 	if counts[ForwardLocal] != 1 || counts[ForwardRemote] != 1 || counts[ForwardSocks5] != 1 {
 		t.Fatalf("unexpected counts %+v", counts)
+	}
+}
+
+// TestCredentialsStayOutOfTheFile checks that the credentials of a host are
+// kept in the secret store and never reach the configuration file.
+func TestCredentialsStayOutOfTheFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	cfg := Default()
+	host := NewHost()
+	host.Host = "10.0.0.1"
+	host.Auth.Password = "s3cret"
+	id := cfg.UpsertHost(host)
+	key := Host{Host: "10.0.0.2", Port: 22, Auth: Auth{
+		Type:       AuthKey,
+		User:       "root",
+		KeyText:    "-----BEGIN OPENSSH PRIVATE KEY-----",
+		Passphrase: "phrase",
+	}}
+	keyID := cfg.UpsertHost(key)
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read the configuration file: %v", err)
+	}
+	for _, secret := range []string{"s3cret", "BEGIN OPENSSH PRIVATE KEY", "phrase"} {
+		if bytes.Contains(data, []byte(secret)) {
+			t.Errorf("the configuration file holds %q", secret)
+		}
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	h, ok := loaded.HostByID(id)
+	if !ok {
+		t.Fatal("host not found")
+	}
+	if h.Auth.Password != "s3cret" {
+		t.Fatalf("the password was not read back: %+v", h.Auth)
+	}
+	k, ok := loaded.HostByID(keyID)
+	if !ok {
+		t.Fatal("host not found")
+	}
+	if k.Auth.KeyText != key.Auth.KeyText || k.Auth.Passphrase != "phrase" {
+		t.Fatalf("the credentials were not read back: %+v", k.Auth)
+	}
+}
+
+// TestCredentialsOfAnotherWayAreKept checks that a credential that does not
+// belong to the way of authentication of a host is moved to the store
+// instead of being lost.
+func TestCredentialsOfAnotherWayAreKept(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	legacy := []byte(`{"hosts":[{"id":"h1","host":"10.0.0.1","port":22,"auth":{"type":"password","user":"root","password":"s3cret","passphrase":"phrase"}}]}`)
+	if err := os.WriteFile(path, legacy, 0o600); err != nil {
+		t.Fatalf("write the configuration file: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Hosts[0].Auth.Password != "s3cret" {
+		t.Fatalf("the password was not read: %+v", cfg.Hosts[0].Auth)
+	}
+	if cfg.Hosts[0].Auth.Passphrase != "phrase" {
+		t.Fatalf("the passphrase was lost: %+v", cfg.Hosts[0].Auth)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read the configuration file: %v", err)
+	}
+	if bytes.Contains(data, []byte("s3cret")) || bytes.Contains(data, []byte("phrase")) {
+		t.Error("the configuration file still holds a credential")
+	}
+
+	// The credentials are in the store, so they are read back.
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load again: %v", err)
+	}
+	if loaded.Hosts[0].Auth.Password != "s3cret" || loaded.Hosts[0].Auth.Passphrase != "phrase" {
+		t.Fatalf("the credentials were not read back: %+v", loaded.Hosts[0].Auth)
+	}
+}
+
+// TestAnUnknownAuthTypeKeepsTheCredentials checks that a way of
+// authentication that the program does not know does not cost the user the
+// credentials of the host.
+func TestAnUnknownAuthTypeKeepsTheCredentials(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	legacy := []byte(`{"hosts":[{"id":"h1","host":"10.0.0.1","port":22,"auth":{"type":"Password","user":"root","password":"s3cret"}}]}`)
+	if err := os.WriteFile(path, legacy, 0o600); err != nil {
+		t.Fatalf("write the configuration file: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Hosts[0].Auth.Type != AuthPassword {
+		t.Fatalf("the way of authentication was not normalized: %q", cfg.Hosts[0].Auth.Type)
+	}
+	if cfg.Hosts[0].Auth.Password != "s3cret" {
+		t.Fatalf("the password was lost: %+v", cfg.Hosts[0].Auth)
+	}
+}
+
+// TestLegacyCredentialsAreMovedToTheStore checks that the credentials of a
+// configuration file written by an older version are moved to the secret
+// store and removed from the file.
+func TestLegacyCredentialsAreMovedToTheStore(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	legacy := []byte(`{"hosts":[{"id":"h1","host":"10.0.0.1","port":22,"auth":{"type":"password","user":"root","password":"s3cret"}}]}`)
+	if err := os.WriteFile(path, legacy, 0o600); err != nil {
+		t.Fatalf("write the configuration file: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(cfg.Hosts) != 1 || cfg.Hosts[0].Auth.Password != "s3cret" {
+		t.Fatalf("the password was not read: %+v", cfg.Hosts)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read the configuration file: %v", err)
+	}
+	if bytes.Contains(data, []byte("s3cret")) {
+		t.Error("the configuration file still holds the password")
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load again: %v", err)
+	}
+	if loaded.Hosts[0].Auth.Password != "s3cret" {
+		t.Fatalf("the password was not kept in the store: %+v", loaded.Hosts[0].Auth)
+	}
+}
+
+// fakeStore is a store of credentials for the tests. Its reads can be made
+// to fail, like a keyring that is locked.
+type fakeStore struct {
+	dir     string
+	values  map[string]string
+	failGet bool
+}
+
+func newFakeStore(dir string) *fakeStore {
+	return &fakeStore{dir: dir, values: map[string]string{}}
+}
+
+func (s *fakeStore) Get(hostID string, f secret.Field) (string, bool, error) {
+	if s.failGet {
+		return "", false, errors.New("the store is not answering")
+	}
+	value, ok := s.values[hostID+":"+string(f)]
+	return value, ok, nil
+}
+
+func (s *fakeStore) Put(hostID string, f secret.Field, value string) error {
+	s.values[hostID+":"+string(f)] = value
+	return nil
+}
+
+func (s *fakeStore) Delete(hostID string, f secret.Field) error {
+	delete(s.values, hostID+":"+string(f))
+	return nil
+}
+
+func (s *fakeStore) DeleteHost(hostID string) error {
+	for _, f := range secret.Fields {
+		s.Delete(hostID, f)
+	}
+	return nil
+}
+
+func (s *fakeStore) Dir() string { return s.dir }
+
+// TestACredentialThatCouldNotBeReadIsNotDeleted makes sure that a credential
+// the store could not read is not removed by a later save.
+func TestACredentialThatCouldNotBeReadIsNotDeleted(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(`{"hosts":[{"id":"h1","host":"10.0.0.1","port":22,"auth":{"type":"password","user":"root"}}]}`), 0o600); err != nil {
+		t.Fatalf("write the configuration file: %v", err)
+	}
+
+	store := newFakeStore(dir)
+	store.values["h1:password"] = "s3cret"
+	store.failGet = true
+
+	cfg, err := LoadWith(path, store)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.CredentialError() == nil {
+		t.Error("the error of the store was not reported")
+	}
+	if cfg.Hosts[0].Auth.Password != "" {
+		t.Fatalf("the credential was read: %+v", cfg.Hosts[0].Auth)
+	}
+
+	// Saving the configuration must not remove the credential.
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if _, ok := store.values["h1:password"]; !ok {
+		t.Error("the credential was deleted although it could not be read")
+	}
+}
+
+// TestTheCredentialsOfARemovedHostAreDeleted checks that the credentials of a
+// host are removed with the host.
+func TestTheCredentialsOfARemovedHostAreDeleted(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	store := newFakeStore(dir)
+
+	cfg := Default()
+	cfg.SetStore(store)
+	host := NewHost()
+	host.Host = "10.0.0.1"
+	host.Auth.Password = "s3cret"
+	id := cfg.UpsertHost(host)
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if _, ok := store.values[id+":password"]; !ok {
+		t.Fatal("the password was not stored")
+	}
+
+	if !cfg.RemoveHost(id) {
+		t.Fatal("the host was not removed")
+	}
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if _, ok := store.values[id+":password"]; ok {
+		t.Error("the password of the removed host is still stored")
 	}
 }

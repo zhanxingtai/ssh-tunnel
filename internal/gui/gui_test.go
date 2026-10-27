@@ -6,7 +6,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	"ssh-tunnel/internal/config"
@@ -16,8 +19,22 @@ import (
 	"ssh-tunnel/internal/version"
 )
 
+// TestMain keeps the tests away from the keyring of the system: the
+// credentials of the tests stay in the encrypted file of the test directory.
+func TestMain(m *testing.M) {
+	os.Setenv("SSH_TUNNEL_KEYRING", "0")
+	os.Exit(m.Run())
+}
+
+// testAPI is a running server of the interface.
+type testAPI struct {
+	*httptest.Server
+	// token authorizes the requests of the test.
+	token string
+}
+
 // testServer starts a server on a temporary configuration file.
-func testServer(t *testing.T) (*httptest.Server, string) {
+func testServer(t *testing.T) (*testAPI, string) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
@@ -36,15 +53,25 @@ func testServer(t *testing.T) (*httptest.Server, string) {
 	if err != nil {
 		t.Fatalf("handler: %v", err)
 	}
-	ts := httptest.NewServer(handler)
+	ts := &testAPI{Server: httptest.NewServer(handler), token: srv.token}
 	t.Cleanup(ts.Close)
 	return ts, path
 }
 
+// request builds a request that carries the token of the session.
+func (a *testAPI) request(method, path string, body io.Reader) *http.Request {
+	req, err := http.NewRequest(method, a.URL+path, body)
+	if err != nil {
+		panic(err)
+	}
+	req.Header.Set(tokenHeader, a.token)
+	return req
+}
+
 // get fetches a path of the API.
-func get(t *testing.T, ts *httptest.Server, path string) (int, map[string]any) {
+func get(t *testing.T, ts *testAPI, path string) (int, map[string]any) {
 	t.Helper()
-	resp, err := http.Get(ts.URL + path)
+	resp, err := http.DefaultClient.Do(ts.request(http.MethodGet, path, nil))
 	if err != nil {
 		t.Fatalf("get %s: %v", path, err)
 	}
@@ -54,14 +81,29 @@ func get(t *testing.T, ts *httptest.Server, path string) (int, map[string]any) {
 	return resp.StatusCode, body
 }
 
+// getRaw fetches a path of the API and returns the answer as it is.
+func getRaw(t *testing.T, ts *testAPI, path string) (int, []byte) {
+	t.Helper()
+	resp, err := http.DefaultClient.Do(ts.request(http.MethodGet, path, nil))
+	if err != nil {
+		t.Fatalf("get %s: %v", path, err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return resp.StatusCode, data
+}
+
 // post sends a payload to a path of the API.
-func post(t *testing.T, ts *httptest.Server, path string, payload any) (int, map[string]any) {
+func post(t *testing.T, ts *testAPI, path string, payload any) (int, map[string]any) {
 	t.Helper()
 	data, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("encode the payload: %v", err)
 	}
-	resp, err := http.Post(ts.URL+path, "application/json", bytes.NewReader(data))
+	resp, err := http.DefaultClient.Do(ts.request(http.MethodPost, path, bytes.NewReader(data)))
 	if err != nil {
 		t.Fatalf("post %s: %v", path, err)
 	}
@@ -239,6 +281,8 @@ func TestOpenWebsite(t *testing.T) {
 	}
 }
 
+// TestSaveHostWithKeyText checks that the private key is kept in the secret
+// store and that the interface never receives it.
 func TestSaveHostWithKeyText(t *testing.T) {
 	ts, path := testServer(t)
 	keyText := "-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----\n"
@@ -265,17 +309,154 @@ func TestSaveHostWithKeyText(t *testing.T) {
 		t.Fatalf("the key text was not stored: %+v", cfg.Hosts)
 	}
 
+	// The configuration file must not hold the private key.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read the configuration file: %v", err)
+	}
+	if bytes.Contains(data, []byte(keyText)) {
+		t.Error("the configuration file holds the private key")
+	}
+
+	// The interface must not receive the private key.
+	_, hosts := getRaw(t, ts, "/api/hosts")
+	if bytes.Contains(hosts, []byte(keyText)) {
+		t.Error("the interface is served the private key")
+	}
+	if !bytes.Contains(hosts, []byte(`"hasKeyText":true`)) {
+		t.Errorf("the interface does not know that a private key is stored: %s", hosts)
+	}
+}
+
+// TestSaveHostKeepsTheStoredCredentials checks that a host that is saved
+// without credentials keeps the ones it already had.
+func TestSaveHostKeepsTheStoredCredentials(t *testing.T) {
+	ts, path := testServer(t)
+	code, body := post(t, ts, "/api/hosts", map[string]any{
+		"name": "web",
+		"host": "10.0.0.1",
+		"port": 22,
+		"auth": map[string]any{"type": "password", "user": "root", "password": "s3cret"},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("the host is not saved: %d %v", code, body)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load the configuration: %v", err)
+	}
+	id := cfg.Hosts[0].ID
+
+	// The host is saved again without a password.
+	code, body = post(t, ts, "/api/hosts", map[string]any{
+		"id":   id,
+		"name": "web",
+		"host": "10.0.0.1",
+		"port": 22,
+		"auth": map[string]any{"type": "password", "user": "root"},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("the host is not saved: %d %v", code, body)
+	}
+	cfg, err = config.Load(path)
+	if err != nil {
+		t.Fatalf("load the configuration: %v", err)
+	}
+	if cfg.Hosts[0].Auth.Password != "s3cret" {
+		t.Fatalf("the password was lost: %+v", cfg.Hosts[0].Auth)
+	}
+}
+
+// TestTheApiRefusesARequestWithoutTheToken checks that the interface of the
+// program cannot be driven by another program of the machine.
+func TestTheApiRefusesARequestWithoutTheToken(t *testing.T) {
+	ts, _ := testServer(t)
 	resp, err := http.Get(ts.URL + "/api/hosts")
 	if err != nil {
 		t.Fatalf("get hosts: %v", err)
 	}
 	defer resp.Body.Close()
-	var hosts []hostView
-	if err := json.NewDecoder(resp.Body).Decode(&hosts); err != nil {
-		t.Fatalf("decode hosts: %v", err)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("a request without the token was accepted: %d", resp.StatusCode)
 	}
-	if len(hosts) != 1 || hosts[0].KeyText != keyText {
-		t.Fatalf("the key text is not served: %+v", hosts)
+}
+
+// TestTheTokenIsAcceptedInTheAddress checks that the page of the program can
+// be opened with the token in its address.
+func TestTheTokenIsAcceptedInTheAddress(t *testing.T) {
+	ts, _ := testServer(t)
+	resp, err := http.Get(ts.URL + "/api/hosts?token=" + ts.token)
+	if err != nil {
+		t.Fatalf("get hosts: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("the token of the address was refused: %d", resp.StatusCode)
+	}
+}
+
+// TestTheTokenIsKeptInACookie checks that the program gives the token to the
+// browser, so that the page keeps it when its address changes.
+func TestTheTokenIsKeptInACookie(t *testing.T) {
+	ts, _ := testServer(t)
+	resp, err := http.Get(ts.URL + "/?token=" + ts.token)
+	if err != nil {
+		t.Fatalf("get the index: %v", err)
+	}
+	defer resp.Body.Close()
+	cookie := resp.Cookies()
+	if len(cookie) != 1 || cookie[0].Name != tokenCookie || cookie[0].Value != ts.token {
+		t.Fatalf("the token was not given to the browser: %+v", cookie)
+	}
+}
+
+// TestAnUnknownTokenGetsNoCookie makes sure that a page of another site
+// cannot make the browser keep the token of the program.
+func TestAnUnknownTokenGetsNoCookie(t *testing.T) {
+	ts, _ := testServer(t)
+	resp, err := http.Get(ts.URL + "/?token=guess")
+	if err != nil {
+		t.Fatalf("get the index: %v", err)
+	}
+	defer resp.Body.Close()
+	for _, cookie := range resp.Cookies() {
+		if cookie.Name == tokenCookie {
+			t.Fatal("the token was given to a request that did not know it")
+		}
+	}
+}
+
+// TestTheApiRefusesAReboundHost checks that the origin is not compared with
+// the host of the request: a page of another site could pretend to be the
+// server.
+func TestTheApiRefusesAReboundHost(t *testing.T) {
+	ts, _ := testServer(t)
+	req := ts.request(http.MethodPost, "/api/hosts", bytes.NewReader([]byte("{}")))
+	req.Host = "example.com"
+	req.Header.Set("Origin", "http://example.com")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post hosts: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("a request with a rebound host was accepted: %d", resp.StatusCode)
+	}
+}
+
+// TestTheApiRefusesAnotherOrigin checks that a page of another site cannot
+// drive the program.
+func TestTheApiRefusesAnotherOrigin(t *testing.T) {
+	ts, _ := testServer(t)
+	req := ts.request(http.MethodPost, "/api/hosts", bytes.NewReader([]byte("{}")))
+	req.Header.Set("Origin", "http://example.com")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post hosts: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("a request from another origin was accepted: %d", resp.StatusCode)
 	}
 }
 
@@ -348,6 +529,62 @@ func TestAutostartRefusesAnUnknownMechanism(t *testing.T) {
 	if code != http.StatusBadRequest {
 		t.Fatalf("an unknown mechanism is accepted: %d", code)
 	}
+}
+
+// TestThePageDoesNotLeakTheAddress makes sure that the address of the
+// server, which carries the token of the session, is not sent to another
+// site.
+func TestThePageDoesNotLeakTheAddress(t *testing.T) {
+	ts, _ := testServer(t)
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatalf("get the index: %v", err)
+	}
+	defer resp.Body.Close()
+	if got := resp.Header.Get("Referrer-Policy"); got != "no-referrer" {
+		t.Errorf("unexpected referrer policy %q", got)
+	}
+}
+
+// TestThePageTranslationsHaveTheSameKeys makes sure that the two
+// dictionaries of the page hold the same messages.
+func TestThePageTranslationsHaveTheSameKeys(t *testing.T) {
+	data, err := assets.ReadFile("assets/i18n.js")
+	if err != nil {
+		t.Fatalf("read the translations: %v", err)
+	}
+	zh := translationKeys(t, string(data), "zh-CN")
+	en := translationKeys(t, string(data), "en-US")
+	for key := range zh {
+		if !en[key] {
+			t.Errorf("the English translation misses %q", key)
+		}
+	}
+	for key := range en {
+		if !zh[key] {
+			t.Errorf("the Chinese translation misses %q", key)
+		}
+	}
+}
+
+// translationKeys returns the message keys of one locale of the page.
+func translationKeys(t *testing.T, content, locale string) map[string]bool {
+	t.Helper()
+	marker := "'" + locale + "': {"
+	start := strings.Index(content, marker)
+	if start < 0 {
+		t.Fatalf("the locale %s is missing", locale)
+	}
+	rest := content[start+len(marker):]
+	end := strings.Index(rest, "\n  }")
+	if end < 0 {
+		t.Fatalf("the locale %s is not closed", locale)
+	}
+	keys := map[string]bool{}
+	for _, match := range regexp.MustCompile(`'([^']+)':`).FindAllStringSubmatch(rest[:end], -1) {
+		keys[match[1]] = true
+	}
+	return keys
 }
 
 // TestIndexHasTheTargetFieldsAndHeaderLinks makes sure the tunnel form keeps

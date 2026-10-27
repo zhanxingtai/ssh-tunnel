@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"ssh-tunnel/internal/i18n"
+	"ssh-tunnel/internal/secret"
 )
 
 // Supported authentication methods.
@@ -53,17 +54,57 @@ const (
 )
 
 // Auth describes how the client authenticates against the SSH server.
+//
+// The credentials are not part of the configuration file: they are kept in
+// the secret store of the machine and are only read into memory while the
+// program runs.
 type Auth struct {
-	Type     string `json:"type"`
-	User     string `json:"user"`
-	Password string `json:"password,omitempty"`
-	KeyPath  string `json:"keyPath,omitempty"`
+	Type string `json:"type"`
+	User string `json:"user"`
+	// KeyPath is the path of the private key file.
+	KeyPath string `json:"keyPath,omitempty"`
+	// Password is the password of the host.
+	Password string `json:"-"`
 	// KeyText holds the text of a private key that was pasted or read from a
 	// file in the interface. It takes precedence over KeyPath.
-	KeyText string `json:"keyText,omitempty"`
+	KeyText string `json:"-"`
 	// Passphrase decrypts an encrypted private key. Empty means the key is
 	// not encrypted.
+	Passphrase string `json:"-"`
+}
+
+// authFile is the on-disk layout of the credentials of a host.
+//
+// The secret fields are only read: the files written by the older versions
+// are migrated to the secret store and the fields are never written again.
+type authFile struct {
+	Type       string `json:"type"`
+	User       string `json:"user"`
+	KeyPath    string `json:"keyPath,omitempty"`
+	Password   string `json:"password,omitempty"`
+	KeyText    string `json:"keyText,omitempty"`
 	Passphrase string `json:"passphrase,omitempty"`
+}
+
+// MarshalJSON writes the credentials of a host without the secrets.
+func (a Auth) MarshalJSON() ([]byte, error) {
+	return json.Marshal(authFile{Type: a.Type, User: a.User, KeyPath: a.KeyPath})
+}
+
+// UnmarshalJSON reads the credentials of a host. The secrets of the older
+// files are kept in memory so that they can be moved to the secret store.
+func (a *Auth) UnmarshalJSON(data []byte) error {
+	var file authFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		return err
+	}
+	a.Type = file.Type
+	a.User = file.User
+	a.KeyPath = file.KeyPath
+	a.Password = file.Password
+	a.KeyText = file.KeyText
+	a.Passphrase = file.Passphrase
+	return nil
 }
 
 // Host is a reachable SSH server together with its credentials.
@@ -197,6 +238,22 @@ func NormalizeTheme(theme string) string {
 	}
 }
 
+// NormalizeAuthType maps the spellings of a way of authentication onto the
+// supported ones. An empty value means the password.
+//
+// An unsupported value is returned as it is, in lower case: the validation
+// reports it instead of guessing.
+func NormalizeAuthType(authType string) string {
+	value := strings.ToLower(strings.TrimSpace(authType))
+	switch value {
+	case "":
+		return AuthPassword
+	case AuthPassword, AuthKey, AuthAgent:
+		return value
+	}
+	return value
+}
+
 // ThemeOrAuto returns the theme of the configuration, defaulting to the one
 // of the system.
 func (s Settings) ThemeOrAuto() string {
@@ -215,6 +272,24 @@ func (s Settings) LanguageOrDetect() string {
 	return i18n.Detect()
 }
 
+// SecretStore is where the credentials of the hosts are kept.
+//
+// The store of the system implements it: the keyring of the operating system
+// or, when there is none, the encrypted file of the configuration directory.
+type SecretStore interface {
+	// Get returns the value of a credential of a host. The second result
+	// tells whether the credential is stored.
+	Get(hostID string, f secret.Field) (string, bool, error)
+	// Put stores the value of a credential of a host.
+	Put(hostID string, f secret.Field, value string) error
+	// Delete removes a credential of a host.
+	Delete(hostID string, f secret.Field) error
+	// DeleteHost removes every credential of a host.
+	DeleteHost(hostID string) error
+	// Dir returns the directory the store works in.
+	Dir() string
+}
+
 // Config is the whole configuration file.
 type Config struct {
 	Settings Settings `json:"settings"`
@@ -222,6 +297,45 @@ type Config struct {
 	Hosts []Host `json:"hosts"`
 	// Tunnels holds the mappings, in the order they are shown.
 	Tunnels []Tunnel `json:"tunnels"`
+
+	// store keeps the credentials of the hosts. It is not part of the file.
+	store SecretStore
+	// loaded holds the credentials that were read from the store or taken
+	// from the configuration file. A credential that is not in there must
+	// not be deleted: it could not be read.
+	loaded map[string]bool
+	// removed holds the hosts whose credentials are deleted once the
+	// configuration file has been written.
+	removed []string
+	// credentialErr holds the error of the credential store when the
+	// credentials of a host could not be read.
+	credentialErr error
+}
+
+// CredentialError returns the error of the credential store, when the
+// credentials of a host could not be read. The program starts anyway; the
+// hosts without credentials cannot authenticate.
+func (c *Config) CredentialError() error {
+	return c.credentialErr
+}
+
+// markLoaded remembers that a credential of a host was read.
+func (c *Config) markLoaded(hostID string, f secret.Field) {
+	if c.loaded == nil {
+		c.loaded = map[string]bool{}
+	}
+	c.loaded[hostID+":"+string(f)] = true
+}
+
+// isLoaded tells whether a credential of a host was read.
+func (c *Config) isLoaded(hostID string, f secret.Field) bool {
+	return c.loaded[hostID+":"+string(f)]
+}
+
+// SetStore sets the store that keeps the credentials of the hosts. It is
+// used by the tests and by the callers that bring their own store.
+func (c *Config) SetStore(store SecretStore) {
+	c.store = store
 }
 
 // DefaultSettings returns the built-in defaults.
@@ -296,7 +410,19 @@ type legacyProfile struct {
 
 // Load reads the configuration file. A missing file is not an error: the
 // default configuration is returned instead.
+//
+// The credentials of the hosts are read from the secret store of the machine.
 func Load(path string) (*Config, error) {
+	store, err := secret.Open(filepath.Dir(path))
+	if err != nil {
+		return nil, i18n.E("err.open_secret_store", err)
+	}
+	return LoadWith(path, store)
+}
+
+// LoadWith reads the configuration file and keeps the credentials of the
+// hosts in the given store.
+func LoadWith(path string, store SecretStore) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		if err := migrateLegacyConfig(path); err != nil {
@@ -304,7 +430,9 @@ func Load(path string) (*Config, error) {
 		}
 		data, err = os.ReadFile(path)
 		if os.IsNotExist(err) {
-			return Default(), nil
+			cfg := Default()
+			cfg.store = store
+			return cfg, nil
 		}
 	}
 	if err != nil {
@@ -314,16 +442,48 @@ func Load(path string) (*Config, error) {
 	if err := json.Unmarshal(data, &file); err != nil {
 		return nil, i18n.E("err.parse_config", path, err)
 	}
-	cfg := &Config{Settings: file.Settings, Hosts: file.Hosts, Tunnels: file.Tunnels}
+	cfg := &Config{Settings: file.Settings, Hosts: file.Hosts, Tunnels: file.Tunnels, store: store}
 	if len(cfg.Hosts) == 0 && len(file.Profiles) > 0 {
 		migrateLegacy(cfg, file.Profiles)
 	}
 	cfg.ApplyDefaults()
+	// The credentials that are still in the file are moved to the store and
+	// the file is written again without them.
+	migrated, err := cfg.loadSecrets()
+	if err != nil {
+		return nil, err
+	}
+	if migrated {
+		if err := cfg.writeFile(path); err != nil {
+			return nil, err
+		}
+	}
+	// The old configuration file must not keep the credentials in clear text.
+	if err := stripLegacyCredentials(path); err != nil {
+		return nil, err
+	}
 	return cfg, nil
 }
 
 // Save writes the configuration file atomically.
+//
+// The credentials of the hosts are written to the secret store instead of the
+// file.
 func (c *Config) Save(path string) error {
+	if err := c.ensureStore(path); err != nil {
+		return err
+	}
+	if err := c.saveSecrets(); err != nil {
+		return err
+	}
+	if err := c.writeFile(path); err != nil {
+		return err
+	}
+	return c.removeCredentials()
+}
+
+// writeFile writes the configuration file atomically.
+func (c *Config) writeFile(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return i18n.E("err.create_config_dir", err)
 	}
@@ -333,6 +493,139 @@ func (c *Config) Save(path string) error {
 	}
 	data = append(data, '\n')
 	return writeConfigFile(path, data)
+}
+
+// ensureStore makes sure the store of the credentials belongs to the
+// directory of the configuration file.
+func (c *Config) ensureStore(path string) error {
+	dir := filepath.Dir(path)
+	if c.store != nil && c.store.Dir() == dir {
+		return nil
+	}
+	store, err := secret.Open(dir)
+	if err != nil {
+		return i18n.E("err.open_secret_store", err)
+	}
+	c.store = store
+	return nil
+}
+
+// loadSecrets fills the credentials of the hosts with the values of the
+// secret store.
+//
+// The values that are still in the configuration file win: the user may have
+// changed them by hand. They are moved to the store.
+//
+// It reports whether the file still held credentials.
+func (c *Config) loadSecrets() (bool, error) {
+	if c.store == nil {
+		return false, nil
+	}
+	migrated := false
+	for i := range c.Hosts {
+		h := &c.Hosts[i]
+		for _, f := range secret.Fields {
+			current := credential(h.Auth, f)
+			if current != "" {
+				// The value of the file wins: the user may have changed
+				// it by hand. It is moved to the store, so that it is not
+				// lost when the file is written again.
+				if err := c.store.Put(h.ID, f, current); err != nil {
+					return migrated, i18n.E("err.write_secret", err)
+				}
+				c.markLoaded(h.ID, f)
+				migrated = true
+				continue
+			}
+			stored, ok, err := c.store.Get(h.ID, f)
+			if err != nil {
+				// The credential store is not answering, for instance
+				// because the keyring of the desktop is locked. The
+				// program still starts; the host simply cannot
+				// authenticate.
+				if c.credentialErr == nil {
+					c.credentialErr = i18n.E("err.read_secret", err)
+				}
+				continue
+			}
+			if ok {
+				setCredential(&h.Auth, f, stored)
+				c.markLoaded(h.ID, f)
+			}
+		}
+	}
+	return migrated, nil
+}
+
+// saveSecrets writes the credentials of the hosts to the secret store.
+//
+// A credential that is empty is removed from the store, but only when it was
+// read: a credential that could not be read must not be removed by mistake.
+func (c *Config) saveSecrets() error {
+	if c.store == nil {
+		return nil
+	}
+	for i := range c.Hosts {
+		h := &c.Hosts[i]
+		for _, f := range secret.Fields {
+			value := credential(h.Auth, f)
+			if value != "" {
+				if err := c.store.Put(h.ID, f, value); err != nil {
+					return i18n.E("err.write_secret", err)
+				}
+				c.markLoaded(h.ID, f)
+				continue
+			}
+			if !c.isLoaded(h.ID, f) {
+				continue
+			}
+			if err := c.store.Delete(h.ID, f); err != nil {
+				return i18n.E("err.write_secret", err)
+			}
+		}
+	}
+	return nil
+}
+
+// removeCredentials deletes the credentials of the hosts that were removed.
+// It runs once the configuration file has been written: a failed write must
+// not lose the credentials of a host that is still in the file.
+func (c *Config) removeCredentials() error {
+	if c.store == nil || len(c.removed) == 0 {
+		return nil
+	}
+	for _, id := range c.removed {
+		if err := c.store.DeleteHost(id); err != nil {
+			return i18n.E("err.write_secret", err)
+		}
+	}
+	c.removed = nil
+	return nil
+}
+
+// credential returns the value of one kind of credential of a host.
+func credential(a Auth, f secret.Field) string {
+	switch f {
+	case secret.FieldPassword:
+		return a.Password
+	case secret.FieldPassphrase:
+		return a.Passphrase
+	case secret.FieldKeyText:
+		return a.KeyText
+	}
+	return ""
+}
+
+// setCredential sets the value of one kind of credential of a host.
+func setCredential(a *Auth, f secret.Field, value string) {
+	switch f {
+	case secret.FieldPassword:
+		a.Password = value
+	case secret.FieldPassphrase:
+		a.Passphrase = value
+	case secret.FieldKeyText:
+		a.KeyText = value
+	}
 }
 
 // writeConfigFile writes data to path, replacing the file atomically.
@@ -371,6 +664,72 @@ func migrateLegacyConfig(path string) error {
 		return i18n.E("err.create_config_dir", err)
 	}
 	return writeConfigFile(path, data)
+}
+
+// stripLegacyCredentials removes the credentials of the old configuration
+// file. They are in the secret store by then, and the old file must not keep
+// them in clear text.
+//
+// It runs after the configuration has been loaded, so that the credentials are
+// in the secret store before the copy is removed.
+func stripLegacyCredentials(path string) error {
+	defaultPath, err := DefaultPath()
+	if err != nil || !samePath(path, defaultPath) {
+		return nil
+	}
+	legacyPath, err := legacyConfigPath()
+	if err != nil {
+		return nil
+	}
+	if _, err := os.Stat(legacyPath); err != nil {
+		return nil
+	}
+	return stripCredentials(legacyPath)
+}
+
+// stripCredentials removes the credentials of a configuration file. Everything
+// else is kept as it is.
+func stripCredentials(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return err
+	}
+	changed := false
+	for _, list := range []string{"hosts", "profiles"} {
+		items, ok := doc[list].([]any)
+		if !ok {
+			continue
+		}
+		for _, item := range items {
+			entry, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			auth, ok := entry["auth"].(map[string]any)
+			if !ok {
+				continue
+			}
+			for _, field := range []string{"password", "keyText", "passphrase"} {
+				if _, ok := auth[field]; ok {
+					delete(auth, field)
+					changed = true
+				}
+			}
+		}
+	}
+	if !changed {
+		return nil
+	}
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	out = append(out, '\n')
+	return writeConfigFile(path, out)
 }
 
 // legacyConfigPath returns the configuration file used before the user state
@@ -468,6 +827,8 @@ func (c *Config) ApplyDefaults() {
 		}
 		if h.Auth.Type == "" {
 			h.Auth.Type = AuthPassword
+		} else {
+			h.Auth.Type = NormalizeAuthType(h.Auth.Type)
 		}
 		if h.KeepaliveSeconds <= 0 {
 			h.KeepaliveSeconds = c.Settings.KeepaliveSeconds
@@ -611,6 +972,9 @@ func (c *Config) UpsertHost(h Host) string {
 
 // RemoveHost deletes a host and every tunnel built on it. It reports whether
 // the host existed.
+//
+// The credentials of the host are removed once the configuration file has
+// been written.
 func (c *Config) RemoveHost(id string) bool {
 	for i := range c.Hosts {
 		if c.Hosts[i].ID != id {
@@ -624,6 +988,7 @@ func (c *Config) RemoveHost(id string) bool {
 			}
 		}
 		c.Tunnels = tunnels
+		c.removed = append(c.removed, id)
 		return true
 	}
 	return false

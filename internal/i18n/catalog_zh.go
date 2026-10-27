@@ -31,6 +31,12 @@ var catalogZh = catalog{
   --passphrase <私钥口令> --auto-reconnect --no-auto-reconnect
   --insecure-host-key
 
+凭据的读取方式（避免密码出现在进程列表中）：
+  --password -            从标准输入读取密码
+  --password-env <变量>   从环境变量读取密码
+  --passphrase -          从标准输入读取私钥口令
+  --passphrase-env <变量> 从环境变量读取私钥口令
+
 隧道选项：
   --name <显示名> --host <所属主机> --type <local|remote|socks5>
   --listen <监听地址> --target <目标地址> --auto-start --no-auto-start
@@ -153,6 +159,14 @@ var catalogZh = catalog{
 	"err.encode_config":     "编码配置失败：%w",
 	"err.write_config":      "写入配置失败：%w",
 	"err.replace_config":    "替换配置失败：%w",
+
+	// 凭据存储
+	"err.open_secret_store": "打开凭据存储失败：%w",
+	"err.read_secret":       "读取凭据失败：%w",
+	"err.write_secret":      "写入凭据失败：%w",
+	"err.read_stdin":        "读取标准输入失败：%w",
+	"err.stdin_used":        "标准输入只能读取一次",
+	"err.env_var_missing":   "环境变量 %s 不存在",
 
 	// 隧道管理
 	"err.manager_closed":         "管理器已关闭",

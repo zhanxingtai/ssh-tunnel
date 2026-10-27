@@ -31,6 +31,12 @@ Host options:
   --passphrase <passphrase> --auto-reconnect --no-auto-reconnect
   --insecure-host-key
 
+Ways of reading a credential (so that it stays out of the process list):
+  --password -            read the password from the standard input
+  --password-env <name>   read the password from an environment variable
+  --passphrase -          read the passphrase from the standard input
+  --passphrase-env <name> read the passphrase from an environment variable
+
 Tunnel options:
   --name <name> --host <host> --type <local|remote|socks5>
   --listen <listen address> --target <target address> --auto-start --no-auto-start
@@ -153,6 +159,14 @@ Global options:
 	"err.encode_config":     "encode config: %w",
 	"err.write_config":      "write config: %w",
 	"err.replace_config":    "replace config: %w",
+
+	// Credential store
+	"err.open_secret_store": "open the credential store: %w",
+	"err.read_secret":       "read the credential: %w",
+	"err.write_secret":      "write the credential: %w",
+	"err.read_stdin":        "read the standard input: %w",
+	"err.stdin_used":        "the standard input can only be read once",
+	"err.env_var_missing":   "the environment variable %s is not set",
 
 	// Tunnel supervision
 	"err.manager_closed":         "manager is closed",

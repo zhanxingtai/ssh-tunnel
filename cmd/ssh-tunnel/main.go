@@ -173,16 +173,22 @@ func setup(configPath string) (*config.Config, *manager.Manager, *logging.Logger
 		}
 		configPath = p
 	}
-	cfg, err := config.Load(configPath)
-	if err != nil {
-		return nil, nil, nil, "", err
-	}
-	applyLanguage(cfg)
 	logPath := filepath.Join(filepath.Dir(configPath), "ssh-tunnel.log")
 	log, err := logging.New(logPath)
 	if err != nil {
 		return nil, nil, nil, "", err
 	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		log.Close()
+		return nil, nil, nil, "", err
+	}
+	// The credentials of a host could not be read: the program runs, but the
+	// host cannot authenticate.
+	if err := cfg.CredentialError(); err != nil {
+		log.Printf("%s", err)
+	}
+	applyLanguage(cfg)
 	return cfg, manager.New(cfg, log), log, configPath, nil
 }
 
@@ -255,9 +261,11 @@ func runInterface(args []string) error {
 	if err != nil {
 		return err
 	}
+	// 窗口与托盘用会话令牌打开界面，浏览器用短时票据：令牌不会留在命令行里。
+	sessionURL := server.SessionURL()
 	runtimeFile := gui.RuntimeFile(cfgPath)
 	gui.WriteRuntimeFile(runtimeFile, gui.RuntimeInfo{
-		URL: url, PID: os.Getpid(), StartedAt: time.Now(), Window: webviewui.Available(),
+		URL: sessionURL, PID: os.Getpid(), StartedAt: time.Now(), Window: webviewui.Available(),
 	})
 	defer gui.RemoveRuntimeFile(runtimeFile)
 
@@ -269,7 +277,7 @@ func runInterface(args []string) error {
 		waitForSignal()
 		return nil
 	}
-	if err := showInterface(url, mgr, log); err != nil {
+	if err := showInterface(url, sessionURL, mgr, log); err != nil {
 		return err
 	}
 	return nil
@@ -286,13 +294,13 @@ func runInterface(args []string) error {
 // On Windows the window and the tray icon are one program: closing the
 // window only hides it, the program stays in the notification area and the
 // tray icon brings the window back.
-func showInterface(url string, mgr *manager.Manager, log *logging.Logger) error {
+func showInterface(url, sessionURL string, mgr *manager.Manager, log *logging.Logger) error {
 	if webviewui.Available() {
 		if tray.Available() {
-			startTray(url, mgr, log)
+			startTray(sessionURL, mgr, log)
 		}
-		defer watchShowRequests(url, log)()
-		return webviewui.OpenWith(url, webviewui.Options{HideOnClose: true})
+		defer watchShowRequests(sessionURL, log)()
+		return webviewui.OpenWith(sessionURL, webviewui.Options{HideOnClose: true})
 	}
 	if err := gui.OpenBrowser(url); err != nil {
 		console.Println(i18n.T("msg.open_manually"), url)
@@ -403,8 +411,9 @@ func runTray(args []string) error {
 	if err != nil {
 		return err
 	}
+	sessionURL := server.SessionURL()
 	runtimeFile := gui.RuntimeFile(cfgPath)
-	gui.WriteRuntimeFile(runtimeFile, gui.RuntimeInfo{URL: url, PID: os.Getpid(), StartedAt: time.Now(), Window: webviewui.Available()})
+	gui.WriteRuntimeFile(runtimeFile, gui.RuntimeInfo{URL: sessionURL, PID: os.Getpid(), StartedAt: time.Now(), Window: webviewui.Available()})
 	defer gui.RemoveRuntimeFile(runtimeFile)
 
 	// 启动标记了自动启动的隧道。
@@ -413,13 +422,13 @@ func runTray(args []string) error {
 	console.Println(i18n.T("msg.gui_address"), url)
 
 	// 别的实例可以让这个实例把窗口显示出来。
-	defer watchShowRequests(url, log)()
+	defer watchShowRequests(sessionURL, log)()
 
 	return tray.Run(mgr, tray.Options{
 		OpenGUI: func() {
 			// The window blocks until it is closed, so it runs in its
 			// own goroutine to keep the tray menu responsive.
-			if err := webviewui.OpenOrShow(url); err != nil {
+			if err := webviewui.OpenOrShow(sessionURL); err != nil {
 				log.Printf("cannot open the interface: %v", err)
 			}
 		},

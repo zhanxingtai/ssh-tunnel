@@ -74,6 +74,9 @@ const I18N = {
     'ui.read_key_failed': '无法读取所选文件',
     'ui.field_password': '密码',
     'ui.field_passphrase': '私钥口令（可选）',
+    'ui.key_text_stored': '已保存私钥（留空表示不修改）',
+    'ui.passphrase_stored': '已保存口令（留空表示不修改）',
+    'ui.password_stored': '已保存密码（留空表示不修改）',
     'ui.field_auto_reconnect': '断线自动重连',
     'ui.field_insecure_host_key': '跳过主机密钥校验',
     'ui.yes': '是',
@@ -120,6 +123,7 @@ const I18N = {
     'ui.delete_tunnel_confirm': '删除该隧道？',
     'ui.connecting_now': '正在连接…',
     'ui.connect_ok': '连接成功',
+    'ui.forbidden': '会话令牌无效，请用程序打印的地址打开此页面',
   },
   'en-US': {
     'ui.brand_sub': 'Tunnel Manager',
@@ -190,6 +194,9 @@ const I18N = {
     'ui.read_key_failed': 'Cannot read the selected file',
     'ui.field_password': 'Password',
     'ui.field_passphrase': 'Passphrase (optional)',
+    'ui.key_text_stored': 'A private key is stored (leave empty to keep it)',
+    'ui.passphrase_stored': 'A passphrase is stored (leave empty to keep it)',
+    'ui.password_stored': 'A password is stored (leave empty to keep it)',
     'ui.field_auto_reconnect': 'Reconnect automatically',
     'ui.field_insecure_host_key': 'Skip the host key check',
     'ui.yes': 'Yes',
@@ -236,6 +243,7 @@ const I18N = {
     'ui.delete_tunnel_confirm': 'Delete this tunnel?',
     'ui.connecting_now': 'Connecting…',
     'ui.connect_ok': 'Connected',
+    'ui.forbidden': 'The session token is missing; open this page with the address printed by the program',
   },
 };
 

@@ -395,10 +395,10 @@
       </select></div>
       <div class="field" id="wrap_key"><label data-i18n="ui.field_key_path">私钥路径</label><input id="h_keypath" placeholder="~/.ssh/id_ed25519"></div>
       <div class="field hidden" id="wrap_pass"><label data-i18n="ui.field_password">密码</label><input id="h_password" type="password"></div>
-      <div class="field hidden" id="wrap_phrase"><label data-i18n="ui.field_passphrase">私钥口令（可选）</label><input id="h_passphrase" type="password"></div>
+      <div class="field hidden" id="wrap_phrase"><label data-i18n="ui.field_passphrase">私钥口令（可选）</label><input id="h_passphrase" type="password" oninput="passphraseChanged()"></div>
       <div class="field full hidden" id="wrap_keytext">
         <label data-i18n="ui.field_key_text">私钥内容</label>
-        <textarea id="h_keytext" spellcheck="false" data-i18n-placeholder="ui.placeholder_key_text"></textarea>
+        <textarea id="h_keytext" spellcheck="false" oninput="keyTextChanged()" data-i18n-placeholder="ui.placeholder_key_text"></textarea>
         <div class="key-tools">
           <button type="button" class="icon-btn" onclick="pickKeyFile()" data-i18n-title="ui.upload_key"><span data-icon="upload"></span></button>
           <button type="button" class="icon-btn" onclick="clearKeyText()" data-i18n-title="ui.clear_key_text"><span data-icon="x"></span></button>
@@ -463,6 +463,17 @@ let activeTab = 'tunnels';
 const expanded = new Set();
 let theme = 'auto';
 const darkScheme = window.matchMedia('(prefers-color-scheme: dark)');
+
+/* token authorizes the requests of the interface. The program puts it in the
+   address of the page; it is kept for the rest of the session. */
+const token = (() => {
+  const fromURL = new URLSearchParams(location.search).get('token');
+  if (fromURL) {
+    try { sessionStorage.setItem('ssh-tunnel-token', fromURL); } catch (e) { /* private mode */ }
+    return fromURL;
+  }
+  try { return sessionStorage.getItem('ssh-tunnel-token') || ''; } catch (e) { return ''; }
+})();
 
 /* normalizeTheme maps a value onto the themes the program supports. */
 function normalizeTheme(value) {
@@ -539,8 +550,13 @@ const stateLabel = state => ({
 }[state] || state);
 
 async function api(path, opts) {
+  opts = opts || {};
+  opts.headers = Object.assign({}, opts.headers);
+  // The token authorizes the requests of the interface.
+  if (token) opts.headers['X-SSH-Tunnel-Token'] = token;
   const res = await fetch('/api/' + path, opts);
   const data = await res.json().catch(() => ({}));
+  if (res.status === 403) throw new Error(t('ui.forbidden'));
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
 }
@@ -907,6 +923,11 @@ function showMessage(text, isError) {
 
 /* ---------- 主机表单 ---------- */
 
+/* keyTextDirty and passphraseDirty tell whether the user changed the
+   credentials of the form. A credential that was not changed keeps its stored
+   value: the program never sends it to the browser. */
+let keyTextDirty = false, passphraseDirty = false;
+
 function hostAuthChanged() {
   const type = document.getElementById('h_authtype').value;
   document.getElementById('wrap_key').classList.toggle('hidden', type !== 'key');
@@ -923,13 +944,22 @@ function loadKeyFile(input) {
   const reader = new FileReader();
   reader.onload = () => {
     document.getElementById('h_keytext').value = String(reader.result || '');
+    keyTextDirty = true;
     input.value = '';
   };
   reader.onerror = () => { alert(t('ui.read_key_failed')); input.value = ''; };
   reader.readAsText(file);
 }
 
-function clearKeyText() { document.getElementById('h_keytext').value = ''; }
+function clearKeyText() {
+  document.getElementById('h_keytext').value = '';
+  keyTextDirty = true;
+}
+
+/* keyTextChanged and passphraseChanged remember that the user touched the
+   credential, so that it is sent to the program. */
+function keyTextChanged() { keyTextDirty = true; }
+function passphraseChanged() { passphraseDirty = true; }
 
 function openHostForm(id) {
   const h = id ? hosts.find(x => x.id === id) : null;
@@ -945,13 +975,22 @@ function openHostForm(id) {
   document.getElementById('h_user').value = h ? h.user : 'root';
   document.getElementById('h_authtype').value = h ? h.authType : 'password';
   document.getElementById('h_keypath').value = h ? (h.keyPath || '') : '';
-  document.getElementById('h_keytext').value = h ? (h.keyText || '') : '';
+  document.getElementById('h_keytext').value = '';
   document.getElementById('h_keyfile').value = '';
   document.getElementById('h_password').value = '';
-  document.getElementById('h_passphrase').value = h ? (h.passphrase || '') : '';
+  document.getElementById('h_passphrase').value = '';
+  keyTextDirty = false;
+  passphraseDirty = false;
   document.getElementById('h_autoreconnect').value = String(h ? !!h.autoReconnect : true);
   document.getElementById('h_insecure').value = String(h ? !!h.insecureHostKey : false);
   hostAuthChanged();
+  // 已保存的凭据不会发送到浏览器，只提示它们还在。
+  document.getElementById('h_keytext').placeholder = h && h.hasKeyText
+    ? t('ui.key_text_stored') : t('ui.placeholder_key_text');
+  document.getElementById('h_passphrase').placeholder = h && h.hasPassphrase
+    ? t('ui.passphrase_stored') : '';
+  document.getElementById('h_password').placeholder = h && h.hasPassword
+    ? t('ui.password_stored') : '';
   document.getElementById('hostdlg').showModal();
 }
 
@@ -960,9 +999,10 @@ function closeHostForm() { document.getElementById('hostdlg').close(); }
 function hostPayload() {
   const editing = hosts.find(x => x.id === document.getElementById('hostdlg').dataset.id);
   const type = document.getElementById('h_authtype').value;
-  let password = document.getElementById('h_password').value;
-  // 编辑时密码留空表示保持原密码不变。
-  if (type === 'password' && !password && editing && editing.hasPassword) password = '********';
+  const password = document.getElementById('h_password').value;
+  const keyText = document.getElementById('h_keytext').value;
+  const passphrase = document.getElementById('h_passphrase').value;
+  // 留空表示保持原值不变；没有发送的字段由程序保留。
   return {
     id: editing ? editing.id : '',
     name: document.getElementById('h_name').value.trim(),
@@ -971,10 +1011,10 @@ function hostPayload() {
     auth: {
       type: type,
       user: document.getElementById('h_user').value.trim(),
-      password: password,
+      password: password ? password : undefined,
       keyPath: document.getElementById('h_keypath').value.trim(),
-      keyText: type === 'key' ? document.getElementById('h_keytext').value : '',
-      passphrase: document.getElementById('h_passphrase').value
+      keyText: type === 'key' && keyTextDirty ? keyText : undefined,
+      passphrase: type === 'key' && passphraseDirty ? passphrase : undefined
     },
     autoReconnect: document.getElementById('h_autoreconnect').value === 'true',
     insecureHostKey: document.getElementById('h_insecure').value === 'true'
@@ -1008,7 +1048,7 @@ async function verifyHostById(id) {
   try {
     const res = await api('hosts/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: h.id, name: h.name, host: h.host, port: h.port,
-        auth: { type: h.authType, user: h.user, keyPath: h.keyPath || '', keyText: h.keyText || '', passphrase: h.passphrase || '', password: h.hasPassword ? '********' : '' },
+        auth: { type: h.authType, user: h.user, keyPath: h.keyPath || '' },
         autoReconnect: h.autoReconnect, insecureHostKey: h.insecureHostKey }) });
     alert(res.detail || t('ui.connect_ok'));
   } catch (e) { alert(e.message); }
@@ -1167,7 +1207,10 @@ api('info').then(i => {
   applyI18n();
   render();
   loadSettings();
-}).catch(() => {});
+}).catch(e => {
+  // 页面是用没有令牌的地址打开的，接口不会应答。
+  document.getElementById('cfgpath').textContent = e.message || '';
+});
 refresh();
 setInterval(refresh, 2000);
 </script>
