@@ -7,3 +7,4 @@ dist/
 .cc-connect/
 DESIGN.md
 __pycache__/
+.gitea/
