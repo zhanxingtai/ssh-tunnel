@@ -1,0 +1,107 @@
+name: ssh-tunnel build and release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Publish a GitHub release for the current version
+        type: boolean
+        default: false
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+env:
+  GOPROXY: https://proxy.golang.org,direct
+  GOSUMDB: sum.golang.org
+
+concurrency:
+  group: ssh-tunnel-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    if: github.ref_type != 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - linux-x64
+          - windows-x64
+    steps:
+      - name: Check out the pinned commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up the pinned Go toolchain
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.1'
+          cache: true
+
+      - name: Run unit tests and static checks
+        run: |
+          set -euo pipefail
+          go test ./...
+          go vet ./...
+
+      - name: Build and verify the standalone archive
+        run: python3 scripts/package.py --targets ${{ matrix.target }}
+
+      - name: Upload the build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssh-tunnel-${{ matrix.target }}
+          path: dist/release/
+          if-no-files-found: error
+
+  release:
+    name: Release linux-x64 / linux-arm64 / windows-x64
+    if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    concurrency:
+      group: ssh-tunnel-release
+      cancel-in-progress: false
+    steps:
+      - name: Check out the pinned commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up the pinned Go toolchain
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.1'
+          cache: true
+
+      - name: Run unit tests and static checks
+        run: |
+          set -euo pipefail
+          go test ./...
+          go vet ./...
+
+      - name: Build and verify the standalone archives
+        run: python3 scripts/package.py --release --targets linux-x64 linux-arm64 windows-x64
+
+      - name: Upload the build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssh-tunnel-release-packages
+          path: dist/release/
+          if-no-files-found: error
+
+      - name: Publish the draft, verify the attachments, then make it public
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish_github.py

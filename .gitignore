@@ -1,0 +1,9 @@
+bin/
+*.exe
+*.test
+*.out
+.DS_Store
+dist/
+.cc-connect/
+DESIGN.md
+__pycache__/

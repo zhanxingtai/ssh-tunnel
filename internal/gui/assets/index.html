@@ -1,0 +1,1175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>SSH-Tunnel</title>
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0a1020;
+    --bg2: #101a30;
+    --panel: #111a2e;
+    --card: #0e1729;
+    --row: #141f38;
+    --line: #1e2b46;
+    --line2: #223050;
+    --fg: #e8eefb;
+    --fg2: #dbe6fb;
+    --muted: #7f93b8;
+    --muted2: #6f83a6;
+    --accent: #3f83f8;
+    --accent2: #2563eb;
+    --ok: #22c55e;
+    --warn: #f59e0b;
+    --err: #ef4444;
+    --chip: #1b2b4c;
+    --heading: #f2f6ff;
+    --topbar-bg: rgba(17,26,46,.86);
+    --tabs-bg: rgba(10,16,32,.55);
+    --button-bg: rgba(27,43,76,.55);
+    --button-hover-fg: #cfe0ff;
+    --button-hover-bg: rgba(37,99,235,.18);
+    --link-hover: #8fd0ff;
+    --card-top: #0e1729;
+    --card-bottom: #0c1424;
+    --card-shadow: 0 10px 30px rgba(0,0,0,.25);
+    --subpanel: rgba(9,14,26,.55);
+    --row-hover: #18253f;
+    --head-hover: rgba(63,131,248,.06);
+    --chip-fg: #8fd0ff;
+    --chip-line: #263a63;
+    --dot-off: #4a5a78;
+    --log-bg: #0a1120;
+    --log-fg: #b9c8e4;
+    --input-bg: #0b1322;
+    --dialog-shadow: 0 24px 70px rgba(0,0,0,.55);
+    --backdrop: rgba(4,8,18,.62);
+    --ok-fg: #86efac;
+    --err-fg: #ff9b9b;
+    --grid-line: rgba(255,255,255,.022);
+    --glow: rgba(37,99,235,.30);
+  }
+  html[data-theme="light"] {
+    color-scheme: light;
+    --bg: #eef3fb;
+    --bg2: #e2e9f5;
+    --panel: #ffffff;
+    --card: #ffffff;
+    --row: #f2f6fc;
+    --line: #d8e1ee;
+    --line2: #c6d3e5;
+    --fg: #1f2a3d;
+    --fg2: #25334b;
+    --muted: #5e6f8b;
+    --muted2: #70809a;
+    --accent: #2563eb;
+    --accent2: #1d4ed8;
+    --ok: #16a34a;
+    --warn: #d97706;
+    --err: #dc2626;
+    --chip: #e3edff;
+    --heading: #172033;
+    --topbar-bg: rgba(255,255,255,.86);
+    --tabs-bg: rgba(244,248,255,.82);
+    --button-bg: rgba(255,255,255,.80);
+    --button-hover-fg: #163a72;
+    --button-hover-bg: #e5efff;
+    --link-hover: #1d4ed8;
+    --card-top: #ffffff;
+    --card-bottom: #f7faff;
+    --card-shadow: 0 10px 30px rgba(30,58,95,.10);
+    --subpanel: #f7faff;
+    --row-hover: #eaf1fd;
+    --head-hover: rgba(37,99,235,.07);
+    --chip-fg: #1d4ed8;
+    --chip-line: #bcd2f6;
+    --dot-off: #a7b4c8;
+    --log-bg: #f7f9fd;
+    --log-fg: #34445f;
+    --input-bg: #ffffff;
+    --dialog-shadow: 0 24px 70px rgba(30,58,95,.22);
+    --backdrop: rgba(30,45,70,.35);
+    --ok-fg: #15803d;
+    --err-fg: #b91c1c;
+    --grid-line: rgba(30,58,95,.045);
+    --glow: rgba(37,99,235,.14);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font: 14px/1.5 "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, -apple-system, sans-serif;
+    color: var(--fg);
+    background:
+      radial-gradient(900px 420px at 78% -10%, var(--glow), transparent 70%),
+      linear-gradient(160deg, var(--bg) 0%, var(--bg2) 100%);
+    background-attachment: fixed;
+  }
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
+                      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .app { position: relative; z-index: 1; min-height: 100%; display: flex; flex-direction: column; }
+
+  /* 顶栏 */
+  .topbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 24px;
+    background: var(--topbar-bg);
+    border-bottom: 1px solid var(--line);
+    backdrop-filter: blur(8px);
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand .logo { width: 34px; height: 34px; border-radius: 9px; display: block; box-shadow: 0 6px 18px rgba(37,99,235,.35); }
+  .brand-name { font-size: 16px; font-weight: 700; letter-spacing: .2px; color: var(--heading); }
+  .brand-subline { display: flex; align-items: center; gap: 8px; }
+  .brand-sub { font-size: 11px; letter-spacing: .18em; color: var(--muted2); text-transform: uppercase; }
+  .version-tag { padding: 1px 7px; font-size: 10px; line-height: 1.4; letter-spacing: .04em; }
+  a.version-tag { text-decoration: none; }
+  a.version-tag:hover { border-color: var(--accent); color: var(--button-hover-fg); background: var(--button-hover-bg); }
+  .spacer { flex: 1; }
+
+  /* 按钮 */
+  button {
+    font: inherit; color: var(--fg);
+    padding: 7px 14px; border-radius: 8px;
+    border: 1px solid var(--line2);
+    background: var(--button-bg);
+    cursor: pointer;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  button:hover { border-color: var(--accent); color: var(--button-hover-fg); background: var(--button-hover-bg); }
+  button.primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); border-color: transparent; color: #fff; font-weight: 600; }
+  button.primary:hover { filter: brightness(1.08); color: #fff; }
+  button.ghost { background: transparent; }
+  button.danger:hover { border-color: var(--err); color: #ffb4b4; background: rgba(239,68,68,.14); }
+  button.link { border: none; background: none; color: var(--accent); padding: 2px 6px; }
+  button.link:hover { background: none; color: var(--link-hover); }
+  .icon { width: 16px; height: 16px; display: block; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .icon-btn { width: 34px; height: 34px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+  .icon-btn .icon { width: 17px; height: 17px; }
+  .icon-btn.primary .icon { width: 18px; height: 18px; }
+
+  /* 页签 */
+  .tabs { display: flex; align-items: center; gap: 4px; padding: 0 24px; border-bottom: 1px solid var(--line); background: var(--tabs-bg); }
+  .tab {
+    border: none; background: none; color: var(--muted);
+    padding: 12px 4px; margin-right: 18px; border-radius: 0;
+    border-bottom: 2px solid transparent;
+  }
+  .tab:hover { background: none; color: var(--fg2); }
+  .tab.active { color: var(--heading); border-bottom-color: var(--accent); font-weight: 600; }
+  .cfgpath { font-size: 12px; }
+
+  main { flex: 1; padding: 22px 24px 40px; max-width: 1180px; width: 100%; margin: 0 auto; }
+  .summary { font-size: 13px; margin-bottom: 14px; }
+
+  /* 主机卡片 */
+  .host {
+    background: linear-gradient(180deg, var(--card-top), var(--card-bottom));
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    margin-bottom: 14px;
+    overflow: hidden;
+    box-shadow: var(--card-shadow);
+  }
+  .host-head { display: flex; align-items: center; gap: 14px; padding: 16px 18px; cursor: pointer; }
+  .host-head:hover { background: var(--head-hover); }
+  .caret { width: 12px; color: var(--muted2); transition: transform .18s; display: inline-block; }
+  .caret.open { transform: rotate(90deg); }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; background: linear-gradient(135deg, #3f83f8, #2563eb); box-shadow: 0 0 0 4px rgba(63,131,248,.12); flex: none; }
+  .host-meta { min-width: 0; }
+  .host-name { font-size: 16px; font-weight: 600; color: var(--fg2); }
+  .host-addr { font-size: 13px; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--chip); color: var(--chip-fg); border: 1px solid var(--chip-line); border-radius: 999px; padding: 3px 10px; font-size: 12px; white-space: nowrap; }
+  .chip.off { color: var(--muted2); border-color: var(--line); background: rgba(127,147,184,.08); }
+  .host-state { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; display: inline-block; }
+  .dot.connected { background: var(--ok); box-shadow: 0 0 8px rgba(34,197,94,.7); }
+  .dot.connecting, .dot.reconnecting { background: var(--warn); box-shadow: 0 0 8px rgba(245,158,11,.6); }
+  .dot.error { background: var(--err); box-shadow: 0 0 8px rgba(239,68,68,.6); }
+  .dot.stopped { background: var(--dot-off); }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .actions button { background: transparent; }
+  .actions .icon-btn { width: 28px; height: 28px; }
+  .actions .icon-btn .icon { width: 15px; height: 15px; }
+
+  /* 隧道列表 */
+  .tunnels { border-top: 1px solid var(--line); padding: 10px 14px 14px; background: var(--subpanel); }
+  .tunnel {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 12px; border-radius: 10px;
+    background: var(--row); margin-top: 6px;
+  }
+  .tunnel:hover { background: var(--row-hover); }
+  .tunnel .name { font-weight: 600; color: var(--fg2); min-width: 92px; }
+  .tunnel .map { color: var(--muted); font-size: 13px; font-family: ui-monospace, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tunnel .type { font-size: 12px; color: var(--muted2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; white-space: nowrap; }
+  .tunnel .auto { font-size: 12px; color: var(--muted2); display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .tunnel .auto input { accent-color: var(--accent); }
+  .empty-tunnel { color: var(--muted2); padding: 10px 12px; font-size: 13px; }
+  .none { color: var(--muted2); font-size: 13px; padding: 6px 0; }
+
+  /* 日志 */
+  .log-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  #logs {
+    margin: 0; padding: 16px 18px;
+    background: var(--log-bg); border: 1px solid var(--line); border-radius: 14px;
+    color: var(--log-fg); font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.65;
+    height: calc(100vh - 220px); min-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-all;
+  }
+
+  .muted { color: var(--muted); }
+
+  /* 对话框 */
+  dialog {
+    border: 1px solid var(--line2); border-radius: 14px; padding: 0;
+    width: min(660px, 94vw); background: var(--panel); color: var(--fg);
+    box-shadow: var(--dialog-shadow);
+  }
+  dialog::backdrop { background: var(--backdrop); }
+  .dlg-body { padding: 22px; }
+  .dlg-body h2 { margin: 0 0 18px; font-size: 17px; color: var(--heading); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field.full { grid-column: 1 / -1; }
+  .addr-row { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); gap: 10px; }
+  label { font-size: 12px; color: var(--muted); }
+  input, select, textarea {
+    font: inherit; padding: 8px 10px; border-radius: 8px;
+    border: 1px solid var(--line2); background: var(--input-bg); color: var(--fg); width: 100%;
+  }
+  textarea { min-height: 104px; resize: vertical; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(63,131,248,.18); }
+  .key-tools { display: flex; gap: 6px; }
+  .key-tools .icon-btn { width: 30px; height: 30px; }
+  .check { flex-direction: row; align-items: center; gap: 8px; }
+  .check input { width: auto; accent-color: var(--accent); }
+  .check label { font-size: 13px; color: var(--fg2); }
+  .dlg-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--line); }
+  .err { color: var(--err-fg); min-height: 18px; font-size: 13px; margin-top: 12px; }
+  .ok { color: var(--ok-fg); min-height: 18px; font-size: 13px; margin-top: 12px; }
+  .hidden { display: none; }
+
+  /* 设置 */
+  .settings { max-width: 720px; }
+  .card {
+    background: linear-gradient(180deg, var(--card-top), var(--card-bottom));
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px 20px;
+    margin-bottom: 14px;
+    box-shadow: var(--card-shadow);
+  }
+  .card h3 { margin: 0 0 16px; font-size: 15px; color: var(--heading); font-weight: 600; }
+  .small { font-size: 12px; margin: 12px 0 0; word-break: break-all; }
+  .settings-foot { display: flex; align-items: center; gap: 12px; }
+  .settings-foot .muted { flex: 1; font-size: 13px; }
+  .settings-foot .muted.err { color: var(--err-fg); }
+  .settings-foot .muted.ok { color: var(--ok-fg); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <img class="logo" src="icon.svg" alt="">
+      <div>
+        <div class="brand-name">SSH-Tunnel</div>
+        <div class="brand-subline">
+          <span class="brand-sub" data-i18n="ui.brand_sub">Tunnel Manager</span>
+          <span class="chip version-tag" id="versiontag" hidden></span>
+          <a class="chip version-tag" id="officialsite" href="https://zhihuizhanxing.com/" target="_blank" rel="noopener noreferrer" data-i18n="ui.official_site" onclick="return openWebsite(event)">官网</a>
+        </div>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <button class="ghost icon-btn" onclick="startAll()" data-i18n-title="ui.start_all"><span data-icon="play"></span></button>
+    <button class="ghost danger icon-btn" onclick="stopAll()" data-i18n-title="ui.stop_all"><span data-icon="stop"></span></button>
+    <button class="ghost icon-btn" onclick="reload()" data-i18n-title="ui.reload"><span data-icon="reload"></span></button>
+    <button class="primary icon-btn" onclick="openHostForm()" data-i18n-title="ui.new_host"><span data-icon="plus"></span></button>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="tunnels" onclick="showTab('tunnels')" data-i18n="ui.tab_tunnels">隧道</button>
+    <button class="tab" data-tab="logs" onclick="showTab('logs')" data-i18n="ui.tab_logs">日志</button>
+    <button class="tab" data-tab="settings" onclick="showTab('settings')" data-i18n="ui.tab_settings">设置</button>
+    <div class="spacer"></div>
+    <span class="cfgpath muted" id="cfgpath"></span>
+  </nav>
+
+  <main>
+    <section id="panel-tunnels">
+      <div class="summary muted" id="summary"></div>
+      <div id="hosts"></div>
+      <p class="none hidden" id="empty" data-i18n="ui.empty_hosts">还没有主机，点右上角“新建主机”添加一台服务器。</p>
+    </section>
+
+    <section id="panel-settings" class="hidden">
+      <div class="settings">
+        <div class="card">
+          <h3 data-i18n="ui.section_interface">界面</h3>
+          <div class="grid">
+            <div class="field"><label data-i18n="ui.field_language">语言</label>
+              <select id="s_language" onchange="changeLanguage(this.value)"></select></div>
+            <div class="field"><label data-i18n="ui.field_theme">主题</label>
+              <select id="s_theme" onchange="changeTheme(this.value)">
+                <option value="auto" data-i18n="ui.theme_auto">跟随系统</option>
+                <option value="dark" data-i18n="ui.theme_dark">深色</option>
+                <option value="light" data-i18n="ui.theme_light">浅色</option>
+              </select></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 data-i18n="ui.section_autostart">开机自启动</h3>
+          <div class="grid">
+            <div class="field" id="wrap_autokind"><label data-i18n="ui.field_autostart_kind">方式</label>
+              <select id="s_autokind" onchange="autostartKindChanged()"></select></div>
+            <div class="field check"><input type="checkbox" id="s_autostart" onchange="setAutostart(this.checked)">
+              <label for="s_autostart" data-i18n="ui.field_autostart_enabled">启用开机自启动</label></div>
+          </div>
+          <p class="muted small" id="s_autostart_desc"></p>
+        </div>
+
+        <div class="card">
+          <h3 data-i18n="ui.section_connection">SSH 连接</h3>
+          <div class="grid">
+            <div class="field"><label data-i18n="ui.field_keepalive">保活间隔（秒）</label>
+              <input id="s_keepalive" type="number" min="1" max="3600"></div>
+            <div class="field"><label data-i18n="ui.field_connect_timeout">连接超时（秒）</label>
+              <input id="s_timeout" type="number" min="1" max="600"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 data-i18n="ui.section_reconnect">重连</h3>
+          <div class="grid">
+            <div class="field"><label data-i18n="ui.field_reconnect_delay">重连间隔（秒）</label>
+              <input id="s_reconnect" type="number" min="1" max="3600"></div>
+            <div class="field"><label data-i18n="ui.field_max_reconnect_delay">最大重连间隔（秒）</label>
+              <input id="s_maxreconnect" type="number" min="1" max="86400"></div>
+            <div class="field full check"><input type="checkbox" id="s_autoreconnect">
+              <label for="s_autoreconnect" data-i18n="ui.field_auto_reconnect_default">断线后自动重连（新建主机的默认值）</label></div>
+          </div>
+        </div>
+
+        <div class="settings-foot">
+          <span class="muted" id="s_msg"></span>
+          <button class="primary icon-btn" onclick="saveSettings()" data-i18n-title="ui.save"><span data-icon="check"></span></button>
+        </div>
+      </div>
+    </section>
+
+    <section id="panel-logs" class="hidden">
+      <div class="log-head">
+        <span class="muted" data-i18n="ui.log_hint">最近 300 行日志，每 2 秒刷新</span>
+        <div class="spacer"></div>
+        <button class="ghost icon-btn" onclick="loadLogs()" data-i18n-title="ui.refresh_now"><span data-icon="refresh"></span></button>
+      </div>
+      <pre id="logs"></pre>
+    </section>
+  </main>
+</div>
+
+<dialog id="hostdlg">
+  <form method="dialog" onsubmit="return false;">
+  <div class="dlg-body">
+    <h2 id="hosttitle" data-i18n="ui.new_host_title">新建主机</h2>
+    <div class="grid">
+      <div class="field"><label data-i18n="ui.field_display_name">显示名（可选）</label><input id="h_name" data-i18n-placeholder="ui.placeholder_display_name" placeholder="例如：测试服务器"></div>
+      <div class="field"><label data-i18n="ui.field_host_address">主机地址</label><input id="h_host" placeholder="192.168.1.10" required></div>
+      <div class="field"><label data-i18n="ui.field_ssh_port">SSH 端口</label><input id="h_port" type="number" value="22"></div>
+      <div class="field"><label data-i18n="ui.field_ssh_user">SSH 用户</label><input id="h_user" value="root"></div>
+      <div class="field"><label data-i18n="ui.field_auth_type">认证方式</label><select id="h_authtype" onchange="hostAuthChanged()">
+        <option value="password" data-i18n="ui.auth_password_option">密码</option><option value="key" data-i18n="ui.auth_key_option">私钥</option><option value="agent" data-i18n="ui.auth_agent_option">SSH Agent</option>
+      </select></div>
+      <div class="field" id="wrap_key"><label data-i18n="ui.field_key_path">私钥路径</label><input id="h_keypath" placeholder="~/.ssh/id_ed25519"></div>
+      <div class="field hidden" id="wrap_pass"><label data-i18n="ui.field_password">密码</label><input id="h_password" type="password"></div>
+      <div class="field hidden" id="wrap_phrase"><label data-i18n="ui.field_passphrase">私钥口令（可选）</label><input id="h_passphrase" type="password"></div>
+      <div class="field full hidden" id="wrap_keytext">
+        <label data-i18n="ui.field_key_text">私钥内容</label>
+        <textarea id="h_keytext" spellcheck="false" data-i18n-placeholder="ui.placeholder_key_text"></textarea>
+        <div class="key-tools">
+          <button type="button" class="icon-btn" onclick="pickKeyFile()" data-i18n-title="ui.upload_key"><span data-icon="upload"></span></button>
+          <button type="button" class="icon-btn" onclick="clearKeyText()" data-i18n-title="ui.clear_key_text"><span data-icon="x"></span></button>
+          <input type="file" id="h_keyfile" class="hidden" onchange="loadKeyFile(this)">
+        </div>
+      </div>
+      <div class="field"><label data-i18n="ui.field_auto_reconnect">断线自动重连</label><select id="h_autoreconnect"><option value="true" data-i18n="ui.yes">是</option><option value="false" data-i18n="ui.no">否</option></select></div>
+      <div class="field"><label data-i18n="ui.field_insecure_host_key">跳过主机密钥校验</label><select id="h_insecure"><option value="false" data-i18n="ui.no">否</option><option value="true" data-i18n="ui.yes">是</option></select></div>
+    </div>
+    <div class="err" id="hosterr"></div>
+    <div class="ok" id="hostok"></div>
+  </div>
+  <div class="dlg-foot">
+    <button class="icon-btn" onclick="closeHostForm()" data-i18n-title="ui.cancel"><span data-icon="x"></span></button>
+    <button class="icon-btn" onclick="verifyHost()" data-i18n-title="ui.test_connection"><span data-icon="plug"></span></button>
+    <button class="primary icon-btn" onclick="saveHost()" data-i18n-title="ui.save"><span data-icon="check"></span></button>
+  </div>
+  </form>
+</dialog>
+
+<dialog id="tunndlg">
+  <form method="dialog" onsubmit="return false;">
+  <div class="dlg-body">
+    <h2 id="tunntitle" data-i18n="ui.new_tunnel_title">新建隧道</h2>
+    <div class="grid">
+      <div class="field"><label data-i18n="ui.field_belong_host">所属主机</label><select id="t_host"></select></div>
+      <div class="field"><label data-i18n="ui.field_display_name">显示名（可选）</label><input id="t_name" data-i18n-placeholder="ui.placeholder_display_name_tunnel" placeholder="例如：数据库"></div>
+      <div class="field full"><label data-i18n="ui.field_type">类型</label><select id="t_type" onchange="tunnelTypeChanged()">
+        <option value="local" data-i18n="ui.type_local_option">本地转发（远端端口 → 本地）</option>
+        <option value="remote" data-i18n="ui.type_remote_option">远程转发（本地端口 → 远端）</option>
+        <option value="socks5" data-i18n="ui.type_socks5_option">动态代理 SOCKS5</option>
+      </select></div>
+      <div class="field full">
+        <label id="t_listenlabel">监听地址</label>
+        <div class="addr-row">
+          <div class="field"><label for="t_listen_host" data-i18n="ui.field_address">地址</label><input id="t_listen_host" placeholder="127.0.0.1" value="127.0.0.1" required></div>
+          <div class="field"><label for="t_listen_port" data-i18n="ui.field_port">端口</label><input id="t_listen_port" type="number" min="1" max="65535" placeholder="8080" required></div>
+        </div>
+      </div>
+      <div class="field full">
+        <label id="t_targetlabel">目标地址</label>
+        <div class="addr-row">
+          <div class="field"><label for="t_target_host" data-i18n="ui.field_address">地址</label><input id="t_target_host" placeholder="127.0.0.1"></div>
+          <div class="field"><label for="t_target_port" data-i18n="ui.field_port">端口</label><input id="t_target_port" type="number" min="1" max="65535" placeholder="80"></div>
+        </div>
+      </div>
+      <div class="field full check"><input type="checkbox" id="t_autostart"><label for="t_autostart" data-i18n="ui.field_auto_start">自动启动（程序运行时自动连接）</label></div>
+    </div>
+    <div class="err" id="tunnerr"></div>
+  </div>
+  <div class="dlg-foot">
+    <button class="icon-btn" onclick="closeTunnelForm()" data-i18n-title="ui.cancel"><span data-icon="x"></span></button>
+    <button class="primary icon-btn" onclick="saveTunnel()" data-i18n-title="ui.save"><span data-icon="check"></span></button>
+  </div>
+  </form>
+</dialog>
+
+<script src="i18n.js"></script>
+<script>
+let hosts = [], tunnels = [], statuses = [];
+let activeTab = 'tunnels';
+const expanded = new Set();
+let theme = 'auto';
+const darkScheme = window.matchMedia('(prefers-color-scheme: dark)');
+
+/* normalizeTheme maps a value onto the themes the program supports. */
+function normalizeTheme(value) {
+  return value === 'dark' || value === 'light' ? value : 'auto';
+}
+
+/* applyTheme resolves "auto" against the color scheme of the system and
+   applies the result to the page. */
+function applyTheme(value) {
+  theme = normalizeTheme(value);
+  const resolved = theme === 'auto' ? (darkScheme.matches ? 'dark' : 'light') : theme;
+  document.documentElement.dataset.theme = resolved;
+}
+
+/* systemThemeChanged follows the system while "auto" is selected. */
+function systemThemeChanged() {
+  if (theme === 'auto') applyTheme('auto');
+}
+if (darkScheme.addEventListener) darkScheme.addEventListener('change', systemThemeChanged);
+else if (darkScheme.addListener) darkScheme.addListener(systemThemeChanged);
+applyTheme('auto');
+
+/* The page is an application window: the browser menus and the drag and drop
+   of the page itself are not wanted. */
+document.addEventListener('contextmenu', event => event.preventDefault());
+document.addEventListener('dragstart', event => event.preventDefault());
+document.addEventListener('dragover', event => event.preventDefault());
+document.addEventListener('drop', event => event.preventDefault());
+
+const ICONS = {
+  play: '<path d="M8 5v14l11-7z"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+  reload: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
+  refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  edit: '<path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17z"/><path d="M13.5 6.5l3 3"/>',
+  trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/>',
+  plug: '<path d="M9 3v6M15 3v6"/><path d="M6 9h12v2a6 6 0 0 1-12 0z"/><path d="M12 17v4"/>',
+  check: '<path d="M20 6L9 17l-5-5"/>',
+  x: '<path d="M18 6L6 18M6 6l12 12"/>',
+  upload: '<path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 20h16"/>'
+};
+
+/* icon returns the inline SVG of a name. */
+function icon(name) {
+  return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`;
+}
+
+/* iconButton returns an icon button with a tooltip. */
+function iconButton(name, label, onclick, cls) {
+  return `<button class="icon-btn ${cls || ''}" onclick="${onclick}" title="${esc(label)}" aria-label="${esc(label)}">${icon(name)}</button>`;
+}
+
+/* applyIcons fills the placeholders of the static buttons. */
+function applyIcons(root) {
+  (root || document).querySelectorAll('[data-icon]').forEach(el => {
+    el.innerHTML = icon(el.dataset.icon);
+  });
+}
+
+/* The labels of the tunnel types and of the states follow the language. */
+const typeLabel = type => ({
+  local: t('ui.type_local'),
+  remote: t('ui.type_remote'),
+  socks5: t('ui.type_socks5')
+}[type] || type);
+
+const stateLabel = state => ({
+  connected: t('ui.state_connected'),
+  connecting: t('ui.state_connecting'),
+  reconnecting: t('ui.state_reconnecting'),
+  error: t('ui.state_error'),
+  stopped: t('ui.state_stopped')
+}[state] || state);
+
+async function api(path, opts) {
+  const res = await fetch('/api/' + path, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+async function openWebsite(event) {
+  if (event) event.preventDefault();
+  try {
+    await api('open-website', { method: 'POST' });
+  } catch (e) {
+    const url = event && event.currentTarget ? event.currentTarget.href : 'https://zhihuizhanxing.com/';
+    window.open(url, '_blank', 'noopener');
+  }
+  return false;
+}
+
+// count returns the singular or the plural form of a label.
+function count(n, oneKey, manyKey) {
+  return n === 1 ? t(oneKey) : t(manyKey);
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function statusOf(id) {
+  return statuses.find(s => s.id === id) || { state: 'stopped', detail: '' };
+}
+
+function tunnelsOf(hostId) {
+  return tunnels.filter(tunnel => tunnel.hostId === hostId);
+}
+
+function showTab(name) {
+  activeTab = name;
+  document.getElementById('panel-tunnels').classList.toggle('hidden', name !== 'tunnels');
+  document.getElementById('panel-logs').classList.toggle('hidden', name !== 'logs');
+  document.getElementById('panel-settings').classList.toggle('hidden', name !== 'settings');
+  for (const tab of document.querySelectorAll('.tab')) {
+    tab.classList.toggle('active', tab.dataset.tab === name);
+  }
+  if (name === 'logs') loadLogs();
+  if (name === 'settings') loadSettings();
+}
+
+async function refresh() {
+  try {
+    const [h, t, s] = await Promise.all([api('hosts'), api('tunnels'), api('status')]);
+    hosts = h; tunnels = t; statuses = s;
+    render();
+  } catch (e) {
+    /* 后端暂时不可用时保持上一帧画面 */
+  }
+  if (activeTab === 'logs') loadLogs();
+}
+
+function render() {
+  const box = document.getElementById('hosts');
+  box.innerHTML = '';
+  document.getElementById('empty').classList.toggle('hidden', hosts.length > 0);
+  for (const host of hosts) {
+    box.appendChild(hostCard(host));
+  }
+  const running = tunnels.filter(tunnel => {
+    const s = statusOf(tunnel.id).state;
+    return s === 'connected' || s === 'connecting' || s === 'reconnecting';
+  }).length;
+  document.getElementById('summary').textContent =
+    `${hosts.length} ${count(hosts.length, 'ui.summary_hosts_one', 'ui.summary_hosts')} · ` +
+    `${tunnels.length} ${count(tunnels.length, 'ui.summary_tunnels_one', 'ui.summary_tunnels')} · ` +
+    `${running} ${t('ui.summary_running')}`;
+}
+
+function hostCard(host) {
+  const list = tunnelsOf(host.id);
+  const states = list.map(tunnel => statusOf(tunnel.id));
+  const running = states.filter(x => x.state === 'connected' || x.state === 'connecting' || x.state === 'reconnecting').length;
+  const errored = states.filter(x => x.state === 'error').length;
+  let state = 'stopped', label = t('ui.host_not_connected');
+  if (errored) { state = 'error'; label = `${errored} ${t('ui.host_errors')}`; }
+  else if (running) { state = 'connected'; label = `${running} / ${list.length} ${t('ui.host_running')}`; }
+  else if (list.length) { label = `0 / ${list.length} ${t('ui.host_zero_running')}`; }
+
+  const open = expanded.has(host.id);
+
+  const card = document.createElement('div');
+  card.className = 'host';
+
+  const head = document.createElement('div');
+  head.className = 'host-head';
+  head.onclick = () => { open ? expanded.delete(host.id) : expanded.add(host.id); render(); };
+  head.innerHTML = `
+    <span class="caret ${open ? 'open' : ''}">▶</span>
+    <span class="avatar"></span>
+    <div class="host-meta">
+      <div class="host-name">${esc(host.name || host.host)}</div>
+      <div class="host-addr">${esc(host.user)}@${esc(host.host)}:${host.port} · ${esc(authLabel(host.authType))}</div>
+    </div>
+    <div class="chips">${chipsOf(host)}</div>
+    <div class="spacer"></div>
+    <div class="host-state"><span class="dot ${state}"></span><span>${esc(label)}</span></div>
+    <div class="actions">
+      ${iconButton('plus', t('ui.new_tunnel'), `event.stopPropagation();openTunnelForm('${esc(host.id)}')`)}
+      ${iconButton('edit', t('ui.edit'), `event.stopPropagation();openHostForm('${esc(host.id)}')`)}
+      ${iconButton('plug', t('ui.verify'), `event.stopPropagation();verifyHostById('${esc(host.id)}')`)}
+      ${iconButton('trash', t('ui.delete'), `event.stopPropagation();delHost('${esc(host.id)}','${esc(host.name || host.host)}')`, 'danger')}
+    </div>`;
+  card.appendChild(head);
+
+  const body = document.createElement('div');
+  body.className = 'tunnels' + (open ? '' : ' hidden');
+  if (!list.length) {
+    body.innerHTML = `<div class="empty-tunnel">${esc(t('ui.no_tunnels'))}</div>`;
+  }
+  for (const tunnel of list) {
+    body.appendChild(tunnelRow(tunnel));
+  }
+  card.appendChild(body);
+  return card;
+}
+
+function chipsOf(host) {
+  const counts = host.counts || {};
+  const chips = [];
+  for (const type of ['local', 'remote', 'socks5']) {
+    const count = counts[type] || 0;
+    if (!count) continue;
+    chips.push(`<span class="chip">${esc(typeLabel(type))} ${count}</span>`);
+  }
+  for (const [type, count] of Object.entries(counts)) {
+    if (['local', 'remote', 'socks5'].includes(type) || !count) continue;
+    chips.push(`<span class="chip">${esc(type)} ${count}</span>`);
+  }
+  if (!chips.length) chips.push(`<span class="chip off">${esc(t('ui.no_forward'))}</span>`);
+  return chips.join('');
+}
+
+function tunnelRow(tunnel) {
+  const s = statusOf(tunnel.id);
+  const mapping = tunnel.type === 'socks5'
+    ? `${tunnel.listen}${tunnel.target ? ' → ' + tunnel.target : ' ' + t('ui.dynamic')}`
+    : `${tunnel.listen} → ${tunnel.target}`;
+  const running = s.state === 'connected' || s.state === 'connecting' || s.state === 'reconnecting';
+  const detail = [
+    stateLabel(s.state),
+    s.detail,
+    s.uptime ? `${t('ui.online')} ${s.uptime} · ${t('ui.reconnects')} ${s.reconnects}` : ''
+  ].filter(Boolean).join(' · ');
+  const row = document.createElement('div');
+  row.className = 'tunnel';
+  row.innerHTML = `
+    <span class="dot ${esc(s.state)}" title="${esc(detail)}"></span>
+    <span class="name">${esc(tunnel.name || tunnel.listen || typeLabel(tunnel.type))}</span>
+    <span class="type">${esc(typeLabel(tunnel.type))}</span>
+    <span class="map">${esc(mapping)}</span>
+    <div class="spacer"></div>
+    <label class="auto"><input type="checkbox" ${tunnel.autoStart ? 'checked' : ''} onchange="setAutoStart('${esc(tunnel.id)}', this.checked)">${esc(t('ui.autostart'))}</label>
+    <div class="actions">
+      ${iconButton(running ? 'stop' : 'play', t(running ? 'ui.stop' : 'ui.start'), `toggleTunnel('${esc(tunnel.id)}','${esc(s.state)}')`)}
+      ${iconButton('edit', t('ui.edit'), `openTunnelForm(null,'${esc(tunnel.id)}')`)}
+      ${iconButton('trash', t('ui.delete'), `delTunnel('${esc(tunnel.id)}')`, 'danger')}
+    </div>`;
+  return row;
+}
+
+function authLabel(type) {
+  return {
+    key: t('ui.auth_key'),
+    password: t('ui.auth_password'),
+    agent: t('ui.auth_agent')
+  }[type] || type;
+}
+
+async function startAll() { try { await api('start-all', { method: 'POST' }); } catch (e) { alert(e.message); } refresh(); }
+async function stopAll() { try { await api('stop-all', { method: 'POST' }); } catch (e) { alert(e.message); } refresh(); }
+async function reload() { try { await api('reload', { method: 'POST' }); } catch (e) { alert(e.message); } refresh(); }
+
+async function toggleTunnel(id, state) {
+  try {
+    await api((state === 'stopped' || state === 'error' ? 'start/' : 'stop/') + encodeURIComponent(id), { method: 'POST' });
+  } catch (e) { alert(e.message); }
+  refresh();
+}
+
+async function setAutoStart(id, checked) {
+  const tunnel = tunnels.find(x => x.id === id);
+  if (!tunnel) return;
+  tunnel.autoStart = checked;
+  try {
+    await api('tunnels', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(tunnel) });
+  } catch (e) { alert(e.message); }
+  refresh();
+}
+
+async function delHost(id, name) {
+  if (!confirm(t('ui.delete_host_confirm') + name + t('ui.delete_host_confirm_end'))) return;
+  try { await api('hosts/' + encodeURIComponent(id), { method: 'DELETE' }); } catch (e) { alert(e.message); }
+  refresh();
+}
+
+async function delTunnel(id) {
+  if (!confirm(t('ui.delete_tunnel_confirm'))) return;
+  try { await api('tunnels/' + encodeURIComponent(id), { method: 'DELETE' }); } catch (e) { alert(e.message); }
+  refresh();
+}
+
+/* ---------- 设置 ---------- */
+
+let locales = [];
+let settings = null;
+let autostart = null;
+
+// loadSettings reads the settings of the program and fills the form.
+async function loadSettings() {
+  try {
+    const data = await api('settings');
+    settings = data.settings;
+    autostart = data.autostart;
+  } catch (e) {
+    return;
+  }
+
+  const langSel = document.getElementById('s_language');
+  langSel.innerHTML = '';
+  for (const locale of locales) {
+    const opt = document.createElement('option');
+    opt.value = locale.id;
+    opt.textContent = locale.name;
+    langSel.appendChild(opt);
+  }
+  langSel.value = settings.language;
+  applyTheme(settings.theme);
+  document.getElementById('s_theme').value = theme;
+
+  const mechanisms = autostart.mechanisms || [];
+  const kindSel = document.getElementById('s_autokind');
+  kindSel.innerHTML = '';
+  for (const m of mechanisms) {
+    const opt = document.createElement('option');
+    opt.value = m.kind;
+    opt.textContent = m.name;
+    kindSel.appendChild(opt);
+  }
+  kindSel.value = autostart.defaultKind;
+  document.getElementById('wrap_autokind').classList.toggle('hidden', mechanisms.length < 2);
+  autostartKindChanged();
+
+  document.getElementById('s_keepalive').value = settings.keepaliveSeconds;
+  document.getElementById('s_timeout').value = settings.connectTimeoutSeconds;
+  document.getElementById('s_reconnect').value = settings.reconnectDelaySeconds;
+  document.getElementById('s_maxreconnect').value = settings.maxReconnectDelaySeconds;
+  document.getElementById('s_autoreconnect').checked = !!settings.autoReconnectDefault;
+}
+
+// autostartKindChanged shows the command of the selected autostart mechanism.
+function autostartKindChanged() {
+  const kind = document.getElementById('s_autokind').value;
+  const mech = (autostart.mechanisms || []).find(m => m.kind === kind);
+  document.getElementById('s_autostart').checked = !!(mech && mech.enabled);
+  document.getElementById('s_autostart_desc').textContent = mech && mech.description
+    ? t('ui.autostart_command') + ' ' + mech.description
+    : '';
+}
+
+// setAutostart registers or removes the autostart entry.
+async function setAutostart(enabled) {
+  const kind = document.getElementById('s_autokind').value;
+  try {
+    const res = await api('autostart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: kind, enabled: enabled })
+    });
+    autostart = res.autostart;
+    showMessage(enabled ? t('ui.autostart_enabled_msg') : t('ui.autostart_disabled_msg'), false);
+  } catch (e) {
+    showMessage(e.message, true);
+  }
+  // The switch follows the real state, also when the change failed.
+  autostartKindChanged();
+}
+
+// settingsPayload reads the form.
+function settingsPayload() {
+  return {
+    language: document.getElementById('s_language').value,
+    theme: document.getElementById('s_theme').value,
+    keepaliveSeconds: parseInt(document.getElementById('s_keepalive').value || '0', 10),
+    connectTimeoutSeconds: parseInt(document.getElementById('s_timeout').value || '0', 10),
+    reconnectDelaySeconds: parseInt(document.getElementById('s_reconnect').value || '0', 10),
+    maxReconnectDelaySeconds: parseInt(document.getElementById('s_maxreconnect').value || '0', 10),
+    autoReconnectDefault: document.getElementById('s_autoreconnect').checked
+  };
+}
+
+// changeLanguage switches the language of the interface without touching the
+// other settings.
+async function changeLanguage(lang) {
+  try {
+    const res = await api('settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ language: lang })
+    });
+    setLang(res.language || lang);
+    applyI18n();
+    await loadSettings();
+    render();
+    showMessage(t('ui.settings_saved'), false);
+  } catch (e) {
+    showMessage(e.message, true);
+    document.getElementById('s_language').value = currentLang;
+  }
+}
+
+// changeTheme applies the theme at once and stores it without touching the
+// other settings.
+async function changeTheme(value) {
+  const before = theme;
+  applyTheme(value);
+  try {
+    const res = await api('settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ theme: value })
+    });
+    applyTheme(res.theme || value);
+    document.getElementById('s_theme').value = theme;
+    showMessage(t('ui.settings_saved'), false);
+  } catch (e) {
+    applyTheme(before);
+    document.getElementById('s_theme').value = before;
+    showMessage(e.message, true);
+  }
+}
+
+// saveSettings stores the settings of the program.
+async function saveSettings() {
+  const before = currentLang;
+  try {
+    const res = await api('settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settingsPayload())
+    });
+    if (res.language && res.language !== before) {
+      setLang(res.language);
+      applyI18n();
+    }
+    await loadSettings();
+    render();
+    showMessage(t('ui.settings_saved'), false);
+  } catch (e) {
+    showMessage(e.message, true);
+  }
+}
+
+// showMessage writes a message under the settings form.
+function showMessage(text, isError) {
+  const el = document.getElementById('s_msg');
+  el.textContent = text;
+  el.classList.toggle('err', !!isError);
+  el.classList.toggle('ok', !isError);
+}
+
+/* ---------- 主机表单 ---------- */
+
+function hostAuthChanged() {
+  const type = document.getElementById('h_authtype').value;
+  document.getElementById('wrap_key').classList.toggle('hidden', type !== 'key');
+  document.getElementById('wrap_keytext').classList.toggle('hidden', type !== 'key');
+  document.getElementById('wrap_phrase').classList.toggle('hidden', type !== 'key');
+  document.getElementById('wrap_pass').classList.toggle('hidden', type !== 'password');
+}
+
+function pickKeyFile() { document.getElementById('h_keyfile').click(); }
+
+function loadKeyFile(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    document.getElementById('h_keytext').value = String(reader.result || '');
+    input.value = '';
+  };
+  reader.onerror = () => { alert(t('ui.read_key_failed')); input.value = ''; };
+  reader.readAsText(file);
+}
+
+function clearKeyText() { document.getElementById('h_keytext').value = ''; }
+
+function openHostForm(id) {
+  const h = id ? hosts.find(x => x.id === id) : null;
+  document.getElementById('hostdlg').dataset.id = h ? h.id : '';
+  document.getElementById('hosterr').textContent = '';
+  document.getElementById('hostok').textContent = '';
+  document.getElementById('hosttitle').textContent = h
+    ? t('ui.edit_host_title') + (h.name || h.host)
+    : t('ui.new_host_title');
+  document.getElementById('h_name').value = h ? (h.name || '') : '';
+  document.getElementById('h_host').value = h ? h.host : '';
+  document.getElementById('h_port').value = h ? h.port : 22;
+  document.getElementById('h_user').value = h ? h.user : 'root';
+  document.getElementById('h_authtype').value = h ? h.authType : 'password';
+  document.getElementById('h_keypath').value = h ? (h.keyPath || '') : '';
+  document.getElementById('h_keytext').value = h ? (h.keyText || '') : '';
+  document.getElementById('h_keyfile').value = '';
+  document.getElementById('h_password').value = '';
+  document.getElementById('h_passphrase').value = h ? (h.passphrase || '') : '';
+  document.getElementById('h_autoreconnect').value = String(h ? !!h.autoReconnect : true);
+  document.getElementById('h_insecure').value = String(h ? !!h.insecureHostKey : false);
+  hostAuthChanged();
+  document.getElementById('hostdlg').showModal();
+}
+
+function closeHostForm() { document.getElementById('hostdlg').close(); }
+
+function hostPayload() {
+  const editing = hosts.find(x => x.id === document.getElementById('hostdlg').dataset.id);
+  const type = document.getElementById('h_authtype').value;
+  let password = document.getElementById('h_password').value;
+  // 编辑时密码留空表示保持原密码不变。
+  if (type === 'password' && !password && editing && editing.hasPassword) password = '********';
+  return {
+    id: editing ? editing.id : '',
+    name: document.getElementById('h_name').value.trim(),
+    host: document.getElementById('h_host').value.trim(),
+    port: parseInt(document.getElementById('h_port').value || '22', 10),
+    auth: {
+      type: type,
+      user: document.getElementById('h_user').value.trim(),
+      password: password,
+      keyPath: document.getElementById('h_keypath').value.trim(),
+      keyText: type === 'key' ? document.getElementById('h_keytext').value : '',
+      passphrase: document.getElementById('h_passphrase').value
+    },
+    autoReconnect: document.getElementById('h_autoreconnect').value === 'true',
+    insecureHostKey: document.getElementById('h_insecure').value === 'true'
+  };
+}
+
+async function saveHost() {
+  const errEl = document.getElementById('hosterr');
+  errEl.textContent = '';
+  try {
+    const payload = hostPayload();
+    await api('hosts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    closeHostForm();
+    refresh();
+  } catch (e) { errEl.textContent = e.message; }
+}
+
+async function verifyHost() {
+  const errEl = document.getElementById('hosterr');
+  const okEl = document.getElementById('hostok');
+  errEl.textContent = ''; okEl.textContent = t('ui.connecting_now');
+  try {
+    const res = await api('hosts/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(hostPayload()) });
+    okEl.textContent = res.detail || t('ui.connect_ok');
+  } catch (e) { okEl.textContent = ''; errEl.textContent = e.message; }
+}
+
+async function verifyHostById(id) {
+  const h = hosts.find(x => x.id === id);
+  if (!h) return;
+  try {
+    const res = await api('hosts/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: h.id, name: h.name, host: h.host, port: h.port,
+        auth: { type: h.authType, user: h.user, keyPath: h.keyPath || '', keyText: h.keyText || '', passphrase: h.passphrase || '', password: h.hasPassword ? '********' : '' },
+        autoReconnect: h.autoReconnect, insecureHostKey: h.insecureHostKey }) });
+    alert(res.detail || t('ui.connect_ok'));
+  } catch (e) { alert(e.message); }
+}
+
+/* ---------- 隧道表单 ---------- */
+
+/* splitAddress separates a stored host:port value into the address and port
+   fields. Brackets around an IPv6 address are removed for editing. The
+   fallback host is used when the value is empty. */
+function splitAddress(value, fallbackHost) {
+  const text = (value || '').trim();
+  if (!text) return { host: fallbackHost || '', port: '' };
+  if (text[0] === '[') {
+    const end = text.indexOf(']');
+    if (end > 0) {
+      const host = text.slice(1, end);
+      const rest = text.slice(end + 1);
+      return { host, port: rest.startsWith(':') ? rest.slice(1) : '' };
+    }
+  }
+  const colon = text.lastIndexOf(':');
+  if (colon > 0 && text.indexOf(':') === colon) {
+    return { host: text.slice(0, colon), port: text.slice(colon + 1) };
+  }
+  return { host: text, port: '' };
+}
+
+/* joinAddress combines the address and port fields into the host:port value
+   stored in the configuration. IPv6 addresses are bracketed; two empty fields
+   stay empty so a SOCKS5 proxy can use a dynamic target. */
+function joinAddress(host, port) {
+  host = (host || '').trim();
+  port = (port || '').trim();
+  if (!host && !port) return '';
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
+  return host.includes(':') ? '[' + host + ']:' + port : host + ':' + port;
+}
+
+function tunnelTypeChanged() {
+  const type = document.getElementById('t_type').value;
+  const listen = document.getElementById('t_listenlabel');
+  const target = document.getElementById('t_targetlabel');
+  const targetHost = document.getElementById('t_target_host');
+  const targetPort = document.getElementById('t_target_port');
+  targetHost.setCustomValidity('');
+  targetPort.setCustomValidity('');
+  if (type === 'local') {
+    listen.textContent = t('ui.listen_local');
+    target.textContent = t('ui.target_remote');
+    targetHost.placeholder = '127.0.0.1';
+    targetPort.placeholder = '80';
+    targetHost.required = true;
+    targetPort.required = true;
+  } else if (type === 'remote') {
+    listen.textContent = t('ui.listen_remote');
+    target.textContent = t('ui.target_local');
+    targetHost.placeholder = '127.0.0.1';
+    targetPort.placeholder = '3000';
+    targetHost.required = true;
+    targetPort.required = true;
+  } else {
+    listen.textContent = t('ui.listen_local');
+    target.textContent = t('ui.target_fixed');
+    targetHost.placeholder = '127.0.0.1';
+    targetPort.placeholder = '80';
+    targetHost.required = false;
+    targetPort.required = false;
+  }
+}
+
+function openTunnelForm(hostId, tunnelId) {
+  const tunnel = tunnelId ? tunnels.find(x => x.id === tunnelId) : null;
+  document.getElementById('tunndlg').dataset.tunnel = tunnel ? tunnel.id : '';
+  document.getElementById('tunnerr').textContent = '';
+  document.getElementById('tunntitle').textContent = tunnel
+    ? t('ui.edit_tunnel_title') + (tunnel.name || tunnel.listen)
+    : t('ui.new_tunnel_title');
+  const sel = document.getElementById('t_host');
+  sel.innerHTML = '';
+  for (const h of hosts) {
+    const opt = document.createElement('option');
+    opt.value = h.id;
+    opt.textContent = h.name || h.host;
+    sel.appendChild(opt);
+  }
+  if (tunnel) sel.value = tunnel.hostId;
+  else if (hostId) sel.value = hostId;
+  document.getElementById('t_name').value = tunnel ? (tunnel.name || '') : '';
+  document.getElementById('t_type').value = tunnel ? tunnel.type : 'local';
+  const listen = splitAddress(tunnel ? tunnel.listen : '', '127.0.0.1');
+  document.getElementById('t_listen_host').value = listen.host;
+  document.getElementById('t_listen_port').value = listen.port;
+  const target = splitAddress(tunnel ? tunnel.target : '');
+  document.getElementById('t_target_host').value = target.host;
+  document.getElementById('t_target_port').value = target.port;
+  document.getElementById('t_autostart').checked = tunnel ? !!tunnel.autoStart : false;
+  tunnelTypeChanged();
+  document.getElementById('tunndlg').showModal();
+}
+
+function closeTunnelForm() { document.getElementById('tunndlg').close(); }
+
+async function saveTunnel() {
+  const errEl = document.getElementById('tunnerr');
+  errEl.textContent = '';
+  const form = document.querySelector('#tunndlg form');
+  if (form && !form.reportValidity()) return;
+  const type = document.getElementById('t_type').value;
+  const targetHost = document.getElementById('t_target_host').value.trim();
+  const targetPort = document.getElementById('t_target_port').value.trim();
+  if (type === 'socks5' && (!!targetHost !== !!targetPort)) {
+    errEl.textContent = t('ui.target_pair_required');
+    return;
+  }
+  const existing = tunnels.find(x => x.id === document.getElementById('tunndlg').dataset.tunnel);
+  const payload = {
+    id: existing ? existing.id : '',
+    name: document.getElementById('t_name').value.trim(),
+    hostId: document.getElementById('t_host').value,
+    type: type,
+    listen: joinAddress(document.getElementById('t_listen_host').value, document.getElementById('t_listen_port').value),
+    target: joinAddress(targetHost, targetPort),
+    autoStart: document.getElementById('t_autostart').checked
+  };
+  try {
+    await api('tunnels', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    closeTunnelForm();
+    refresh();
+  } catch (e) { errEl.textContent = e.message; }
+}
+
+/* ---------- 日志 ---------- */
+
+async function loadLogs() {
+  try {
+    const lines = await api('logs');
+    const el = document.getElementById('logs');
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 24;
+    el.textContent = lines.slice(-300).join('\n');
+    if (atBottom) el.scrollTop = el.scrollHeight;
+  } catch (e) { /* 后端暂时不可用时保留旧内容 */ }
+}
+
+api('info').then(i => {
+  document.getElementById('cfgpath').textContent = i.configPath || '';
+  const versionTag = document.getElementById('versiontag');
+  if (i.version) {
+    versionTag.textContent = 'v' + i.version;
+    versionTag.hidden = false;
+  }
+  if (i.language) setLang(i.language);
+  if (i.theme) applyTheme(i.theme);
+  locales = i.locales || [];
+  applyIcons();
+  applyI18n();
+  render();
+  loadSettings();
+}).catch(() => {});
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
