@@ -29,6 +29,8 @@ import zipfile
 TARGETS = {
     'linux-x64': dict(os='linux', arch='amd64', pattern=r'ELF 64-bit.*x86-64', ui='browser-fallback'),
     'linux-arm64': dict(os='linux', arch='arm64', pattern=r'ELF 64-bit.*ARM aarch64', ui='browser-fallback'),
+    'darwin-x64': dict(os='darwin', arch='amd64', pattern=r'Mach-O 64-bit.*x86_64', ui='browser-fallback'),
+    'darwin-arm64': dict(os='darwin', arch='arm64', pattern=r'Mach-O 64-bit.*arm64', ui='browser-fallback'),
     'windows-x64': dict(os='windows', arch='amd64', pattern=r'PE32\+.*x86-64', ui='webview-window'),
 }
 

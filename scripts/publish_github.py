@@ -16,8 +16,8 @@ import urllib.parse
 import urllib.request
 
 COMPONENT = 'ssh-tunnel'
-# A release must cover all three platforms.
-EXPECTED_TARGETS = ('linux-x64', 'linux-arm64', 'windows-x64')
+# A release must cover every platform.
+EXPECTED_TARGETS = ('linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64', 'windows-x64')
 API_VERSION = '2022-11-28'
 
 

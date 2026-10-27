@@ -193,6 +193,18 @@ process directly, with the PID recorded in `~/.config/ssh-tunnel/daemon.pid`.
 - Enable autostart on the **Settings** page or with `ssh-tunnel autostart on`; it writes to
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 
+## macOS
+
+- The archives are `ssh-tunnel-darwin-arm64.tar.gz` (Apple silicon) and
+  `ssh-tunnel-darwin-x64.tar.gz` (Intel); unpack them and run `./ssh-tunnel`;
+- The interface opens in the default browser (the same fallback as on Linux); the program
+  itself ships no native window;
+- The autostart uses a launchd login item: tick it on the settings page or run
+  `ssh-tunnel autostart on`, which writes `~/Library/LaunchAgents/com.ssh-tunnel.plist` and
+  starts `ssh-tunnel daemon` at login;
+- The credentials live in the login keychain; the keychain may ask for permission the first
+  time it is read.
+
 ## Linux autostart
 
 Use XDG autostart when a desktop session is available. On headless machines, choose one of:

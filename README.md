@@ -187,6 +187,15 @@ systemd 由服务管理器启停；cron 与 desktop 方式直接启停后台进�
 - 开机自启动可在「设置」页勾选，或运行 `ssh-tunnel autostart on`，写入
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`。
 
+## macOS
+
+- 发行包为 `ssh-tunnel-darwin-arm64.tar.gz`（Apple 芯片）与 `ssh-tunnel-darwin-x64.tar.gz`
+  （Intel），解压后直接运行 `./ssh-tunnel`；
+- 界面在系统默认浏览器里打开（与 Linux 的回退形态相同），程序本身不装原生窗口；
+- 开机自启动用 launchd 的登录项：在「设置」页勾选，或运行 `ssh-tunnel autostart on`，
+  写入 `~/Library/LaunchAgents/com.ssh-tunnel.plist`，登录后自动运行 `ssh-tunnel daemon`；
+- 密码等凭据存在登录钥匙串里；首次访问时钥匙串可能弹一次授权提示，允许即可。
+
 ## Linux 开机自启动
 
 有桌面会话时使用 XDG 自启动；无桌面环境时可选：

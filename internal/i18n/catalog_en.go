@@ -256,6 +256,9 @@ Global options:
 	"err.write_crontab":            "write crontab: %v (%s)",
 	"err.no_unit_dir":              "no unit directory",
 	"err.systemctl":                "systemctl %s: %v (%s)",
+	"err.remove_launchd_agent":     "remove the launchd agent: %w",
+	"err.write_launchd_agent":      "write the launchd agent: %w",
+	"err.launchctl":                "launchctl %s: %v (%s)",
 
 	// Background instance
 	"err.instance_running":     "the background instance is already running",
@@ -282,6 +285,7 @@ Global options:
 	"autostart.systemd-user":    "systemd user service",
 	"autostart.systemd-system":  "systemd system service",
 	"autostart.cron":            "The @reboot entry of crontab",
+	"autostart.launchd":         "The launchd login item (LaunchAgent)",
 	"autostart.registry":        "Windows startup entry",
 	"field.keepalive":           "keepalive interval",
 	"field.connect_timeout":     "connection timeout",

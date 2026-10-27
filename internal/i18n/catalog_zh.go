@@ -256,6 +256,9 @@ var catalogZh = catalog{
 	"err.write_crontab":            "写入 crontab 失败：%v（%s）",
 	"err.no_unit_dir":              "找不到服务目录",
 	"err.systemctl":                "systemctl %s 失败：%v（%s）",
+	"err.remove_launchd_agent":     "删除 launchd 登录项失败：%w",
+	"err.write_launchd_agent":      "写入 launchd 登录项失败：%w",
+	"err.launchctl":                "launchctl %s 失败：%v（%s）",
 
 	// 后台实例
 	"err.instance_running":     "后台实例已在运行",
@@ -282,6 +285,7 @@ var catalogZh = catalog{
 	"autostart.systemd-user":    "systemd 用户服务",
 	"autostart.systemd-system":  "systemd 系统服务",
 	"autostart.cron":            "crontab 的 @reboot",
+	"autostart.launchd":         "launchd 登录项（LaunchAgent）",
 	"autostart.registry":        "Windows 启动项",
 	"field.keepalive":           "保活间隔",
 	"field.connect_timeout":     "连接超时",

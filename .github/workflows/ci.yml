@@ -32,6 +32,7 @@ jobs:
       matrix:
         target:
           - linux-x64
+          - darwin-arm64
           - windows-x64
     steps:
       - name: Check out the pinned commit
@@ -63,7 +64,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Release linux-x64 / linux-arm64 / windows-x64
+    name: Release linux-x64 / linux-arm64 / darwin-x64 / darwin-arm64 / windows-x64
     if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.release)
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -92,7 +93,7 @@ jobs:
           go vet ./...
 
       - name: Build and verify the standalone archives
-        run: python3 scripts/package.py --release --targets linux-x64 linux-arm64 windows-x64
+        run: python3 scripts/package.py --release --targets linux-x64 linux-arm64 darwin-x64 darwin-arm64 windows-x64
 
       - name: Upload the build artifacts
         uses: actions/upload-artifact@v4

@@ -29,6 +29,8 @@ const (
 	KindSystemdSystem Kind = "systemd-system"
 	// KindCron is a crontab @reboot entry.
 	KindCron Kind = "cron"
+	// KindLaunchd is a launchd login item of macOS.
+	KindLaunchd Kind = "launchd"
 	// KindRegistry is the Windows Run key.
 	KindRegistry Kind = "registry"
 )
