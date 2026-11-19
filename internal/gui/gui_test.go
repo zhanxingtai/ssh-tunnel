@@ -480,6 +480,44 @@ func TestSaveHostDefaultsToPasswordAuth(t *testing.T) {
 	}
 }
 
+// TestSaveTunnelDefaultsTheTargetAddress checks that a tunnel saved without
+// a target address points at the loopback address.
+func TestSaveTunnelDefaultsTheTargetAddress(t *testing.T) {
+	ts, path := testServer(t)
+	code, body := post(t, ts, "/api/hosts", map[string]any{
+		"name": "web",
+		"host": "10.0.0.1",
+		"port": 22,
+		"auth": map[string]any{"user": "root", "password": "secret"},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("the host is not saved: %d %v", code, body)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load the configuration: %v", err)
+	}
+	code, body = post(t, ts, "/api/tunnels", map[string]any{
+		"hostId": cfg.Hosts[0].ID,
+		"type":   "local",
+		"listen": "127.0.0.1:8080",
+		"target": ":80",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("the tunnel is not saved: %d %v", code, body)
+	}
+	cfg, err = config.Load(path)
+	if err != nil {
+		t.Fatalf("load the configuration: %v", err)
+	}
+	if len(cfg.Tunnels) != 1 {
+		t.Fatalf("unexpected tunnels: %+v", cfg.Tunnels)
+	}
+	if got := cfg.Tunnels[0].Target; got != "127.0.0.1:80" {
+		t.Fatalf("the target is %q", got)
+	}
+}
+
 func TestSaveHostRejectsDuplicate(t *testing.T) {
 	ts, path := testServer(t)
 	payload := map[string]any{

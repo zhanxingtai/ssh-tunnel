@@ -996,6 +996,7 @@ func (c *Config) RemoveHost(id string) bool {
 
 // UpsertTunnel inserts or replaces a tunnel and returns its identifier.
 func (c *Config) UpsertTunnel(t Tunnel) string {
+	NormalizeTunnel(&t)
 	if t.ID == "" {
 		t.ID = newID("t")
 	}
@@ -1079,6 +1080,31 @@ func ValidateTunnel(t *Tunnel) []error {
 		errs = append(errs, err)
 	}
 	return errs
+}
+
+// DefaultTargetHost is the host a target address falls back to when the
+// address is left empty.
+const DefaultTargetHost = "127.0.0.1"
+
+// NormalizeTunnel fills in the parts of a tunnel that may be left out. The
+// target of a local or of a remote forward points at the loopback address
+// when no address is given, so that only a port has to be filled in. The
+// target of a SOCKS5 proxy stays empty, such a proxy is dynamic then.
+func NormalizeTunnel(t *Tunnel) {
+	if t == nil || t.Type == ForwardSocks5 {
+		return
+	}
+	t.Target = withDefaultHost(t.Target)
+}
+
+// withDefaultHost replaces the empty host of an address by the loopback
+// address. An address without a port is left alone, it is invalid anyway.
+func withDefaultHost(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || host != "" {
+		return addr
+	}
+	return net.JoinHostPort(DefaultTargetHost, port)
 }
 
 // Validate checks the whole configuration.

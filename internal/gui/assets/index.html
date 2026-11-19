@@ -444,6 +444,7 @@
           <div class="field"><label for="t_target_host" data-i18n="ui.field_address">地址</label><input id="t_target_host" placeholder="127.0.0.1"></div>
           <div class="field"><label for="t_target_port" data-i18n="ui.field_port">端口</label><input id="t_target_port" type="number" min="1" max="65535" placeholder="80"></div>
         </div>
+        <p class="muted small hidden" id="t_targethint"></p>
       </div>
       <div class="field full check"><input type="checkbox" id="t_autostart"><label for="t_autostart" data-i18n="ui.field_auto_start">自动启动（程序运行时自动连接）</label></div>
     </div>
@@ -1094,6 +1095,7 @@ function tunnelTypeChanged() {
   const target = document.getElementById('t_targetlabel');
   const targetHost = document.getElementById('t_target_host');
   const targetPort = document.getElementById('t_target_port');
+  const hint = document.getElementById('t_targethint');
   targetHost.setCustomValidity('');
   targetPort.setCustomValidity('');
   if (type === 'local') {
@@ -1101,14 +1103,14 @@ function tunnelTypeChanged() {
     target.textContent = t('ui.target_remote');
     targetHost.placeholder = '127.0.0.1';
     targetPort.placeholder = '80';
-    targetHost.required = true;
+    targetHost.required = false;
     targetPort.required = true;
   } else if (type === 'remote') {
     listen.textContent = t('ui.listen_remote');
     target.textContent = t('ui.target_local');
     targetHost.placeholder = '127.0.0.1';
     targetPort.placeholder = '3000';
-    targetHost.required = true;
+    targetHost.required = false;
     targetPort.required = true;
   } else {
     listen.textContent = t('ui.listen_local');
@@ -1118,6 +1120,11 @@ function tunnelTypeChanged() {
     targetHost.required = false;
     targetPort.required = false;
   }
+  // The address of a target may be left empty, the loopback address is used
+  // then. The target of a SOCKS5 proxy stays empty to keep it dynamic.
+  const dynamic = type === 'socks5';
+  hint.textContent = dynamic ? '' : t('ui.target_default_hint');
+  hint.classList.toggle('hidden', dynamic);
 }
 
 function openTunnelForm(hostId, tunnelId) {
@@ -1158,8 +1165,14 @@ async function saveTunnel() {
   const form = document.querySelector('#tunndlg form');
   if (form && !form.reportValidity()) return;
   const type = document.getElementById('t_type').value;
-  const targetHost = document.getElementById('t_target_host').value.trim();
+  const targetHostInput = document.getElementById('t_target_host');
+  let targetHost = targetHostInput.value.trim();
   const targetPort = document.getElementById('t_target_port').value.trim();
+  if (type !== 'socks5' && !targetHost) {
+    // An empty address points at the loopback address.
+    targetHost = '127.0.0.1';
+    targetHostInput.value = targetHost;
+  }
   if (type === 'socks5' && (!!targetHost !== !!targetPort)) {
     errEl.textContent = t('ui.target_pair_required');
     return;

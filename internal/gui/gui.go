@@ -919,6 +919,8 @@ func (s *Server) saveTunnel(w http.ResponseWriter, r *http.Request) {
 	if t.Type == "" {
 		t.Type = config.ForwardLocal
 	}
+	// A target address without a host points at the loopback address.
+	config.NormalizeTunnel(&t)
 	if errs := config.ValidateTunnel(&t); len(errs) > 0 {
 		s.writeError(w, http.StatusBadRequest, errs[0])
 		return

@@ -168,6 +168,50 @@ func TestValidateTunnel(t *testing.T) {
 	}
 }
 
+// TestNormalizeTunnel checks that a target address without a host points at
+// the loopback address.
+func TestNormalizeTunnel(t *testing.T) {
+	tun := Tunnel{HostID: "h1", Type: ForwardLocal, Listen: "127.0.0.1:8080", Target: ":80"}
+	NormalizeTunnel(&tun)
+	if tun.Target != "127.0.0.1:80" {
+		t.Fatalf("the target is %q", tun.Target)
+	}
+	if errs := ValidateTunnel(&tun); len(errs) != 0 {
+		t.Fatalf("unexpected validation errors: %v", errs)
+	}
+
+	// An address that is given is kept.
+	tun = Tunnel{HostID: "h1", Type: ForwardLocal, Listen: "127.0.0.1:8080", Target: "10.0.0.5:80"}
+	NormalizeTunnel(&tun)
+	if tun.Target != "10.0.0.5:80" {
+		t.Fatalf("the target is %q", tun.Target)
+	}
+
+	// A target without a port stays invalid.
+	tun = Tunnel{HostID: "h1", Type: ForwardRemote, Listen: "127.0.0.1:8080"}
+	NormalizeTunnel(&tun)
+	if errs := ValidateTunnel(&tun); len(errs) == 0 {
+		t.Fatal("expected an error for the target without a port")
+	}
+
+	// A SOCKS5 proxy without a target is dynamic and stays that way.
+	tun = Tunnel{HostID: "h1", Type: ForwardSocks5, Listen: "127.0.0.1:1080"}
+	NormalizeTunnel(&tun)
+	if tun.Target != "" {
+		t.Fatalf("the target is %q", tun.Target)
+	}
+}
+
+// TestUpsertTunnelNormalizesTheTarget checks that a stored tunnel keeps the
+// loopback address when it is saved without an address.
+func TestUpsertTunnelNormalizesTheTarget(t *testing.T) {
+	cfg := Default()
+	cfg.UpsertTunnel(Tunnel{ID: "t1", HostID: "h1", Type: ForwardLocal, Listen: "127.0.0.1:1", Target: ":2"})
+	if got := cfg.Tunnels[0].Target; got != "127.0.0.1:2" {
+		t.Fatalf("the target is %q", got)
+	}
+}
+
 func TestUpsertAndRemove(t *testing.T) {
 	cfg := Default()
 	h := NewHost()

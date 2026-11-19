@@ -504,6 +504,8 @@ func configTunnelAdd(args []string) error {
 		return i18n.E("err.host_not_found", t.HostID)
 	}
 	t.HostID = host.ID
+	// A target address without a host points at the loopback address.
+	config.NormalizeTunnel(&t)
 	if errs := config.ValidateTunnel(&t); len(errs) > 0 {
 		return errs[0]
 	}
@@ -554,6 +556,8 @@ func configTunnelEdit(args []string) error {
 		}
 		t.HostID = host.ID
 	}
+	// A target address without a host points at the loopback address.
+	config.NormalizeTunnel(t)
 	if errs := config.ValidateTunnel(t); len(errs) > 0 {
 		return errs[0]
 	}
