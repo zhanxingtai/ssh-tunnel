@@ -126,12 +126,15 @@ var langError error
 type flags struct {
 	configPath string
 	addr       string
-	noOpen     bool
-	args       []string
+	// addrGiven tells whether the address was given on the command line.
+	// It wins over the one of the configuration file.
+	addrGiven bool
+	noOpen    bool
+	args      []string
 }
 
 func parseFlags(args []string) (flags, error) {
-	f := flags{addr: "127.0.0.1:8787"}
+	var f flags
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--config", "-c":
@@ -146,6 +149,7 @@ func parseFlags(args []string) (flags, error) {
 			}
 			i++
 			f.addr = args[i]
+			f.addrGiven = true
 		case "--no-open":
 			f.noOpen = true
 		default:
@@ -153,6 +157,25 @@ func parseFlags(args []string) (flags, error) {
 		}
 	}
 	return f, nil
+}
+
+// interfaceAddr returns the address the management interface listens on.
+//
+// The command line wins over the configuration file, which wins over the
+// default address. An address that is not usable stops the program.
+func interfaceAddr(f flags, cfg *config.Config) (string, error) {
+	addr := config.DefaultInterfaceAddr
+	if strings.TrimSpace(cfg.Settings.Addr) != "" {
+		addr = cfg.Settings.Addr
+	}
+	if f.addrGiven {
+		addr = f.addr
+	}
+	addr = strings.TrimSpace(addr)
+	if err := config.ValidateInterfaceAddr(addr); err != nil {
+		return "", err
+	}
+	return addr, nil
 }
 
 // applyLanguage uses the language of the configuration. The language given on
@@ -250,6 +273,11 @@ func runInterface(args []string) error {
 	defer mgr.Close()
 	defer log.Close()
 
+	addr, err := interfaceAddr(f, mgr.Config())
+	if err != nil {
+		return err
+	}
+
 	guard, err := acquireInstance(cfgPath)
 	if err != nil {
 		return err
@@ -257,7 +285,7 @@ func runInterface(args []string) error {
 	defer guard.Release()
 
 	server := gui.New(mgr, cfgPath)
-	url, err := server.Listen(f.addr)
+	url, err := server.Listen(addr)
 	if err != nil {
 		return err
 	}
@@ -400,6 +428,11 @@ func runTray(args []string) error {
 	defer mgr.Close()
 	defer log.Close()
 
+	addr, err := interfaceAddr(f, mgr.Config())
+	if err != nil {
+		return err
+	}
+
 	guard, err := acquireInstance(cfgPath)
 	if err != nil {
 		return err
@@ -407,7 +440,7 @@ func runTray(args []string) error {
 	defer guard.Release()
 
 	server := gui.New(mgr, cfgPath)
-	url, err := server.Listen(f.addr)
+	url, err := server.Listen(addr)
 	if err != nil {
 		return err
 	}
@@ -508,9 +541,23 @@ func currentUserName() string {
 	return os.Getenv("USER")
 }
 
+// daemonOpensInterface tells whether the daemon opens the management
+// interface.
+//
+// A machine without a desktop does not need one, so the daemon only opens it
+// when an address was named: in the configuration file or on the command
+// line.
+func daemonOpensInterface(f flags, cfg *config.Config) bool {
+	return f.addrGiven || strings.TrimSpace(cfg.Settings.Addr) != ""
+}
+
 // runDaemon starts the tunnels and keeps them running until the process is
 // asked to stop. It is the mode used by the autostart entries on machines
 // without a desktop.
+//
+// The management interface is only opened when the configuration names an
+// address for it: a machine without a desktop does not need one, and the
+// daemon would then listen on a port nobody looks at.
 func runDaemon(args []string) error {
 	f, err := parseFlags(args)
 	if err != nil {
@@ -523,6 +570,11 @@ func runDaemon(args []string) error {
 	defer mgr.Close()
 	defer log.Close()
 
+	addr, err := interfaceAddr(f, mgr.Config())
+	if err != nil {
+		return err
+	}
+
 	guard, err := acquireInstance(cfgPath)
 	if err != nil {
 		return err
@@ -532,6 +584,23 @@ func runDaemon(args []string) error {
 		return err
 	}
 	defer daemon.RemovePID()
+
+	// The interface is opened when the configuration asks for it: an empty
+	// address in the configuration means that the daemon runs without one.
+	var server *gui.Server
+	if daemonOpensInterface(f, mgr.Config()) {
+		server = gui.New(mgr, cfgPath)
+		url, err := server.Listen(addr)
+		if err != nil {
+			return err
+		}
+		runtimeFile := gui.RuntimeFile(cfgPath)
+		gui.WriteRuntimeFile(runtimeFile, gui.RuntimeInfo{
+			URL: server.SessionURL(), PID: os.Getpid(), StartedAt: time.Now(),
+		})
+		defer gui.RemoveRuntimeFile(runtimeFile)
+		console.Println(i18n.T("msg.gui_address"), url)
+	}
 
 	names := f.args
 	startAll := false

@@ -187,6 +187,119 @@ func TestSaveSettingsRefusesAnUnknownTheme(t *testing.T) {
 	}
 }
 
+// TestSaveTheInterfaceAddress checks that the address of the interface is
+// stored in the configuration file.
+func TestSaveTheInterfaceAddress(t *testing.T) {
+	ts, path := testServer(t)
+	code, body := post(t, ts, "/api/settings", map[string]any{"addr": "127.0.0.1:9090"})
+	if code != http.StatusOK {
+		t.Fatalf("the address is not saved: %d %v", code, body)
+	}
+	if got := loadSettings(t, path).Addr; got != "127.0.0.1:9090" {
+		t.Errorf("the address is %q", got)
+	}
+}
+
+// TestSaveSettingsRefusesAnInvalidAddress makes sure that a broken address
+// does not reach the configuration file.
+func TestSaveSettingsRefusesAnInvalidAddress(t *testing.T) {
+	ts, path := testServer(t)
+	code, _ := post(t, ts, "/api/settings", map[string]any{"addr": "127.0.0.1"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("an invalid address is accepted: %d", code)
+	}
+	if got := loadSettings(t, path).Addr; got != "" {
+		t.Errorf("the address is %q", got)
+	}
+}
+
+// TestSaveTheSessionToken checks that a fixed token is stored in the secret
+// store and not in the configuration file.
+func TestSaveTheSessionToken(t *testing.T) {
+	ts, path := testServer(t)
+	code, body := post(t, ts, "/api/settings", map[string]any{"sessionToken": "fixed-token-value-1234"})
+	if code != http.StatusOK {
+		t.Fatalf("the token is not saved: %d %v", code, body)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load the configuration: %v", err)
+	}
+	value, err := cfg.SessionToken()
+	if err != nil {
+		t.Fatalf("read the token: %v", err)
+	}
+	if value != "fixed-token-value-1234" {
+		t.Errorf("the token is %q", value)
+	}
+	// The token is a secret: it must not be in the configuration file.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read the configuration file: %v", err)
+	}
+	if bytes.Contains(data, []byte("fixed-token-value-1234")) {
+		t.Error("the token was written to the configuration file")
+	}
+}
+
+// TestSaveSettingsRefusesAShortToken makes sure that a token that is too
+// easy to guess is refused.
+func TestSaveSettingsRefusesAShortToken(t *testing.T) {
+	ts, _ := testServer(t)
+	code, _ := post(t, ts, "/api/settings", map[string]any{"sessionToken": "short"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("a short token is accepted: %d", code)
+	}
+}
+
+// TestClearTheSessionToken checks that the fixed token can be removed again.
+func TestClearTheSessionToken(t *testing.T) {
+	ts, path := testServer(t)
+	code, _ := post(t, ts, "/api/settings", map[string]any{"sessionToken": "fixed-token-value-1234"})
+	if code != http.StatusOK {
+		t.Fatalf("the token is not saved: %d", code)
+	}
+	code, _ = post(t, ts, "/api/settings", map[string]any{"clearSessionToken": true})
+	if code != http.StatusOK {
+		t.Fatalf("the token is not cleared: %d", code)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load the configuration: %v", err)
+	}
+	value, err := cfg.SessionToken()
+	if err != nil {
+		t.Fatalf("read the token: %v", err)
+	}
+	if value != "" {
+		t.Errorf("the token is %q", value)
+	}
+}
+
+// TestTheSettingsShowTheStoredToken makes sure that the interface tells that
+// a token is stored, without giving the token itself.
+func TestTheSettingsShowTheStoredToken(t *testing.T) {
+	ts, path := testServer(t)
+	code, _ := post(t, ts, "/api/settings", map[string]any{"sessionToken": "fixed-token-value-1234"})
+	if code != http.StatusOK {
+		t.Fatalf("the token is not saved: %d", code)
+	}
+	code, body := get(t, ts, "/api/settings")
+	if code != http.StatusOK {
+		t.Fatalf("the settings are not served: %d", code)
+	}
+	settings := body["settings"].(map[string]any)
+	if settings["hasSessionToken"] != true {
+		t.Errorf("the stored token is not reported: %v", settings)
+	}
+	// The token itself must not reach the browser.
+	raw, _ := json.Marshal(body)
+	if bytes.Contains(raw, []byte("fixed-token-value-1234")) {
+		t.Error("the token was sent to the browser")
+	}
+	_ = path
+}
+
 func TestSaveTheThemeOnly(t *testing.T) {
 	ts, path := testServer(t)
 	code, body := post(t, ts, "/api/settings", map[string]any{"theme": "Light"})

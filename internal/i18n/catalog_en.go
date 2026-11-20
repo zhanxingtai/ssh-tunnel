@@ -12,7 +12,7 @@ Usage:
   ssh-tunnel tray               stay in the system tray (Windows)
   ssh-tunnel autostart <on|off|status> [mechanism]
   ssh-tunnel service <start|stop|restart|status> [mechanism]
-  ssh-tunnel config <path|list|show|host|tunnel> ...
+  ssh-tunnel config <path|list|show|host|tunnel|addr|token> ...
   ssh-tunnel version
 
 Configuration:
@@ -24,6 +24,12 @@ Configuration:
   ssh-tunnel config tunnel add [name] [opts]  add a tunnel
   ssh-tunnel config tunnel edit <name> [opts] change a tunnel
   ssh-tunnel config tunnel remove <name>      remove a tunnel
+  ssh-tunnel config addr set <address>      set the listen address of the interface
+  ssh-tunnel config addr show               show the listen address of the interface
+  ssh-tunnel config addr clear              clear the listen address of the interface
+  ssh-tunnel config token set [opts]        set the fixed access token
+  ssh-tunnel config token show              show the fixed access token
+  ssh-tunnel config token clear             clear the fixed access token
 
 Host options:
   --name <name> --host <host> --port <port> --user <user>
@@ -40,6 +46,12 @@ Ways of reading a credential (so that it stays out of the process list):
 Tunnel options:
   --name <name> --host <host> --type <local|remote|socks5>
   --listen <listen address> --target <target address> --auto-start --no-auto-start
+
+Fixed token options (the token lives in the credential store, not in the
+configuration file):
+  --token <token>      give the token
+  --token -            read the token from the standard input
+  --token-env <name>   read the token from an environment variable
 
 Tunnel types:
   local   local forward (remote port -> local)
@@ -63,9 +75,17 @@ Without a mechanism the one matching the environment is used.
 
 Global options:
   --config <file>   configuration file (default: ~/.config/ssh-tunnel/config.json)
-  --addr <address>  address the interface listens on (default 127.0.0.1:8787)
+  --addr <address>  address the interface listens on (default 127.0.0.1:8787;
+                    the command line wins over the configuration file)
   --lang <locale>   language of the interface and of the output (zh-CN or en-US)
-  --no-open         do not open a window or a browser`,
+  --no-open         do not open a window or a browser
+
+Interface listen address:
+  The listen address of the interface can be fixed in settings.addr of the
+  configuration file; the --addr option of the command line wins over it.
+  An empty address means that the interface uses the default one and that the
+  daemon opens none. Once an address is set, the daemon opens the management
+  interface on it, which helps to manage a machine without a desktop.`,
 
 	"err.unknown_command":   "unknown command %q",
 	"err.flag_config_value": "--config requires a value",
@@ -127,6 +147,23 @@ Global options:
 	"msg.tunnel_updated":          "tunnel %s updated (%s)",
 	"msg.tunnel_removed":          "tunnel %s removed (%s)",
 
+	// Interface address and fixed token
+	"err.token_requires_action":    "token requires one of: set, show, clear",
+	"err.unknown_token_action":     "unknown token action %q",
+	"err.token_set_requires_value": "--token or --token-env is required",
+	"err.token_set_takes_no_value": "the value of the token is given by --token or --token-env, not by a positional argument",
+	"err.token_set_conflict":       "--token and --token-env cannot be given together",
+	"err.token_too_short":          "the token must have at least %d characters",
+	"err.no_secret_store":          "no credential store is available",
+	"msg.token_set":                "the fixed token was set (%s)",
+	"msg.token_cleared":            "the fixed token was cleared, the program makes one up again (%s)",
+	"msg.token_not_set":            "no fixed token is set, the program makes one up for every run",
+	"err.addr_requires_action":     "addr requires one of: set, show, clear",
+	"err.unknown_addr_action":      "unknown addr action %q",
+	"err.addr_requires_value":      "a listen address is required",
+	"msg.addr_set":                 "the listen address was set to %s (%s)",
+	"msg.addr_cleared":             "the listen address was cleared, the interface uses the default one and the daemon opens none (%s)",
+
 	// Service
 	"err.service_requires_action": "service requires start, stop, restart or status",
 	"err.unknown_service_action":  "unknown service action %q",
@@ -159,6 +196,7 @@ Global options:
 	"field.private_key_text":    "private key text",
 	"field.listen_address":      "listen address",
 	"field.target_address":      "target address",
+	"field.interface_addr":      "interface listen address",
 
 	// Configuration file
 	"err.read_config":       "read config %s: %w",

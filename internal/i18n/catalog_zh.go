@@ -24,6 +24,12 @@ var catalogZh = catalog{
   ssh-tunnel config tunnel add [显示名] [选项]  新增隧道
   ssh-tunnel config tunnel edit <名称> [选项]    修改隧道
   ssh-tunnel config tunnel remove <名称>       删除隧道
+  ssh-tunnel config addr set <地址>            设置界面监听地址
+  ssh-tunnel config addr show                  显示界面监听地址
+  ssh-tunnel config addr clear                 清除界面监听地址
+  ssh-tunnel config token set [选项]           设置固定访问令牌
+  ssh-tunnel config token show                 显示固定访问令牌
+  ssh-tunnel config token clear                清除固定访问令牌
 
 主机选项：
   --name <显示名> --host <主机> --port <端口> --user <用户>
@@ -40,6 +46,11 @@ var catalogZh = catalog{
 隧道选项：
   --name <显示名> --host <所属主机> --type <local|remote|socks5>
   --listen <监听地址> --target <目标地址> --auto-start --no-auto-start
+
+固定令牌选项（令牌存在凭据存储里，不写进配置文件）：
+  --token <令牌>      直接给出令牌
+  --token -           从标准输入读取令牌
+  --token-env <变量>  从环境变量读取令牌
 
 隧道类型：
   local   本地转发（远端端口 → 本地）
@@ -61,9 +72,14 @@ var catalogZh = catalog{
 
 全局参数:
   --config <文件>   指定配置文件（默认：~/.config/ssh-tunnel/config.json）
-  --addr <地址>     图形界面监听地址（默认 127.0.0.1:8787）
+  --addr <地址>     图形界面监听地址（默认 127.0.0.1:8787；优先于配置文件里的设置）
   --lang <语言>     界面与输出的语言（zh-CN 或 en-US）
-  --no-open         不自动打开窗口或浏览器`,
+  --no-open         不自动打开窗口或浏览器
+
+界面监听地址：
+  配置文件 settings.addr 里可以固定界面的监听地址，命令行 --addr 优先于它。
+  地址留空时界面使用默认地址，daemon 模式也不开启界面；设了地址之后，
+  daemon 会在这个地址上开启管理界面，方便在没有桌面的机器上远程管理。`,
 
 	"err.unknown_command":   "未知命令 %q",
 	"err.flag_config_value": "--config 需要一个值",
@@ -125,6 +141,23 @@ var catalogZh = catalog{
 	"msg.tunnel_updated":          "已更新隧道 %s（%s）",
 	"msg.tunnel_removed":          "已删除隧道 %s（%s）",
 
+	// 界面地址与固定令牌
+	"err.token_requires_action":    "token 需要以下之一：set、show、clear",
+	"err.unknown_token_action":     "未知的 token 操作 %q",
+	"err.token_set_requires_value": "必须给出 --token 或 --token-env",
+	"err.token_set_takes_no_value": "token 的值由 --token 或 --token-env 给出，不要再写位置参数",
+	"err.token_set_conflict":       "--token 与 --token-env 只能给一个",
+	"err.token_too_short":          "令牌至少要有 %d 个字符",
+	"err.no_secret_store":          "没有可用的凭据存储",
+	"msg.token_set":                "已设置固定令牌（%s）",
+	"msg.token_cleared":            "已清除固定令牌，程序将重新随机生成（%s）",
+	"msg.token_not_set":            "尚未设置固定令牌，程序每次启动都会随机生成",
+	"err.addr_requires_action":     "addr 需要以下之一：set、show、clear",
+	"err.unknown_addr_action":      "未知的 addr 操作 %q",
+	"err.addr_requires_value":      "必须给出监听地址",
+	"msg.addr_set":                 "已将监听地址设为 %s（%s）",
+	"msg.addr_cleared":             "已清除监听地址，界面回到默认地址，daemon 不再开启界面（%s）",
+
 	// 服务
 	"err.service_requires_action": "service 需要 start、stop、restart 或 status",
 	"err.unknown_service_action":  "未知的 service 操作 %q",
@@ -157,6 +190,7 @@ var catalogZh = catalog{
 	"field.private_key_text":    "私钥内容",
 	"field.listen_address":      "监听地址",
 	"field.target_address":      "目标地址",
+	"field.interface_addr":      "界面监听地址",
 
 	// 配置文件读写
 	"err.read_config":       "读取配置 %s 失败：%w",

@@ -29,6 +29,9 @@ const (
 	FieldPassphrase Field = "passphrase"
 	// FieldKeyText is the private key of the host.
 	FieldKeyText Field = "keytext"
+	// FieldSessionToken is the fixed token of the management interface. It
+	// belongs to the program and not to a host, so it is not part of Fields.
+	FieldSessionToken Field = "sessiontoken"
 )
 
 // Fields lists every kind of credential.

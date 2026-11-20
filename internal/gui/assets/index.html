@@ -346,6 +346,14 @@
                 <option value="dark" data-i18n="ui.theme_dark">深色</option>
                 <option value="light" data-i18n="ui.theme_light">浅色</option>
               </select></div>
+            <div class="field full"><label data-i18n="ui.field_interface_addr">监听地址</label>
+              <input id="s_addr" placeholder="127.0.0.1:8787">
+              <p class="muted small" data-i18n="ui.field_interface_addr_hint"></p></div>
+            <div class="field full"><label data-i18n="ui.field_session_token">固定访问令牌</label>
+              <input id="s_token" type="password" autocomplete="off">
+              <p class="muted small" id="s_tokenhint"></p></div>
+            <div class="field full check"><input type="checkbox" id="s_cleartoken">
+              <label for="s_cleartoken" data-i18n="ui.field_clear_session_token">清除已保存的令牌</label></div>
           </div>
         </div>
 
@@ -853,6 +861,11 @@ async function loadSettings() {
   document.getElementById('s_reconnect').value = settings.reconnectDelaySeconds;
   document.getElementById('s_maxreconnect').value = settings.maxReconnectDelaySeconds;
   document.getElementById('s_autoreconnect').checked = !!settings.autoReconnectDefault;
+  document.getElementById('s_addr').value = settings.addr || '';
+  document.getElementById('s_token').value = '';
+  document.getElementById('s_cleartoken').checked = false;
+  const tokenHint = document.getElementById('s_tokenhint');
+  tokenHint.textContent = settings.hasSessionToken ? t('ui.session_token_stored') : t('ui.session_token_none');
 }
 
 // autostartKindChanged shows the command of the selected autostart mechanism.
@@ -885,15 +898,22 @@ async function setAutostart(enabled) {
 
 // settingsPayload reads the form.
 function settingsPayload() {
-  return {
+  const payload = {
     language: document.getElementById('s_language').value,
     theme: document.getElementById('s_theme').value,
     keepaliveSeconds: parseInt(document.getElementById('s_keepalive').value || '0', 10),
     connectTimeoutSeconds: parseInt(document.getElementById('s_timeout').value || '0', 10),
     reconnectDelaySeconds: parseInt(document.getElementById('s_reconnect').value || '0', 10),
     maxReconnectDelaySeconds: parseInt(document.getElementById('s_maxreconnect').value || '0', 10),
-    autoReconnectDefault: document.getElementById('s_autoreconnect').checked
+    autoReconnectDefault: document.getElementById('s_autoreconnect').checked,
+    addr: document.getElementById('s_addr').value.trim()
   };
+  // The token is only sent when it was changed: an empty field leaves the
+  // stored one alone.
+  const token = document.getElementById('s_token').value.trim();
+  if (token) payload.sessionToken = token;
+  if (document.getElementById('s_cleartoken').checked) payload.clearSessionToken = true;
+  return payload;
 }
 
 // changeLanguage switches the language of the interface without touching the

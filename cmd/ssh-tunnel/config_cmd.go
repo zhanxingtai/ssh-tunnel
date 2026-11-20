@@ -35,9 +35,242 @@ func runConfigCLI(args []string) error {
 		return configHost(args[1:])
 	case "tunnel":
 		return configTunnel(args[1:])
+	case "token":
+		return configToken(args[1:])
+	case "addr":
+		return configAddr(args[1:])
 	default:
 		return i18n.E("err.unknown_config_action", args[0])
 	}
+}
+
+// configAddr handles the "config addr" commands: the address the management
+// interface listens on.
+func configAddr(args []string) error {
+	if len(args) == 0 {
+		return i18n.E("err.addr_requires_action")
+	}
+	switch args[0] {
+	case "set":
+		return configAddrSet(args[1:])
+	case "show":
+		return configAddrShow(args[1:])
+	case "clear":
+		return configAddrClear(args[1:])
+	default:
+		return i18n.E("err.unknown_addr_action", args[0])
+	}
+}
+
+// configAddrSet stores the address the management interface listens on.
+//
+// The daemon only opens the interface when an address is set: a machine
+// without a desktop does not need one.
+func configAddrSet(args []string) error {
+	fs := flag.NewFlagSet("config addr set", flag.ContinueOnError)
+	var addr, configFile string
+	fs.StringVar(&addr, "addr", "", "监听地址")
+	fs.StringVar(&configFile, "config", "", "配置文件路径")
+	flagArgs, positional := splitArgs(fs, args)
+	if err := fs.Parse(flagArgs); err != nil {
+		return err
+	}
+	value := addr
+	if len(positional) > 0 {
+		value = positional[0]
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return i18n.E("err.addr_requires_value")
+	}
+	if err := config.ValidateInterfaceAddr(value); err != nil {
+		return err
+	}
+	path := configFile
+	if path == "" {
+		path = globalPath
+	}
+	if path == "" {
+		path, _ = config.DefaultPath()
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return err
+	}
+	applyLanguage(cfg)
+	next := *cfg
+	next.Settings.Addr = value
+	if err := next.Save(path); err != nil {
+		return err
+	}
+	console.Printf("%s\n", i18n.T("msg.addr_set", value, path))
+	return nil
+}
+
+// configAddrShow prints the address the management interface listens on.
+func configAddrShow(args []string) error {
+	path, err := configPath(args)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return err
+	}
+	applyLanguage(cfg)
+	addr := strings.TrimSpace(cfg.Settings.Addr)
+	if addr == "" {
+		addr = config.DefaultInterfaceAddr
+	}
+	console.Println(addr)
+	return nil
+}
+
+// configAddrClear removes the address: the default one is used again and the
+// daemon opens no interface.
+func configAddrClear(args []string) error {
+	path, err := configPath(args)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return err
+	}
+	applyLanguage(cfg)
+	next := *cfg
+	next.Settings.Addr = ""
+	if err := next.Save(path); err != nil {
+		return err
+	}
+	console.Printf("%s\n", i18n.T("msg.addr_cleared", path))
+	return nil
+}
+
+// configToken handles the "config token" commands: the fixed token of the
+// management interface.
+func configToken(args []string) error {
+	if len(args) == 0 {
+		return i18n.E("err.token_requires_action")
+	}
+	switch args[0] {
+	case "set":
+		return configTokenSet(args[1:])
+	case "show":
+		return configTokenShow(args[1:])
+	case "clear":
+		return configTokenClear(args[1:])
+	default:
+		return i18n.E("err.unknown_token_action", args[0])
+	}
+}
+
+// configTokenSet stores the fixed token of the management interface.
+//
+// The token is a secret: it is kept in the secret store and not in the
+// configuration file. It can be read from the standard input or from an
+// environment variable, so that it does not show up in the list of the
+// processes of the machine.
+func configTokenSet(args []string) error {
+	fs := flag.NewFlagSet("config token set", flag.ContinueOnError)
+	var token, tokenEnv, configFile string
+	fs.StringVar(&token, "token", "", "固定令牌（- 表示从标准输入读取）")
+	fs.StringVar(&tokenEnv, "token-env", "", "从指定环境变量读取固定令牌")
+	fs.StringVar(&configFile, "config", "", "配置文件路径")
+	flagArgs, positional := splitArgs(fs, args)
+	if err := fs.Parse(flagArgs); err != nil {
+		return err
+	}
+	if len(positional) > 0 {
+		return i18n.E("err.token_set_takes_no_value")
+	}
+	given := givenFlags(fs)
+	if given["token"] && given["token-env"] {
+		return i18n.E("err.token_set_conflict")
+	}
+	if !given["token"] && !given["token-env"] {
+		return i18n.E("err.token_set_requires_value")
+	}
+	value := token
+	if given["token-env"] {
+		v, err := secretFromEnv(tokenEnv)
+		if err != nil {
+			return err
+		}
+		value = v
+	} else if token == "-" {
+		v, err := secretFromStdin()
+		if err != nil {
+			return err
+		}
+		value = v
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return i18n.E("err.token_set_requires_value")
+	}
+	if err := config.ValidateSessionToken(value); err != nil {
+		return err
+	}
+	path := configFile
+	if path == "" {
+		path = globalPath
+	}
+	if path == "" {
+		path, _ = config.DefaultPath()
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return err
+	}
+	applyLanguage(cfg)
+	if err := cfg.SetSessionToken(value); err != nil {
+		return err
+	}
+	console.Printf("%s\n", i18n.T("msg.token_set", path))
+	return nil
+}
+
+// configTokenShow prints the fixed token of the management interface.
+func configTokenShow(args []string) error {
+	path, err := configPath(args)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return err
+	}
+	applyLanguage(cfg)
+	value, err := cfg.SessionToken()
+	if err != nil {
+		return err
+	}
+	if value == "" {
+		console.Println(i18n.T("msg.token_not_set"))
+		return nil
+	}
+	console.Println(value)
+	return nil
+}
+
+// configTokenClear removes the fixed token: the program makes one up again
+// for every run.
+func configTokenClear(args []string) error {
+	path, err := configPath(args)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return err
+	}
+	applyLanguage(cfg)
+	if err := cfg.SetSessionToken(""); err != nil {
+		return err
+	}
+	console.Printf("%s\n", i18n.T("msg.token_cleared", path))
+	return nil
 }
 
 // globalPath holds the configuration file given before the subcommand.

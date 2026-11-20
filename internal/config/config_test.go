@@ -226,6 +226,105 @@ func TestMapping(t *testing.T) {
 	}
 }
 
+// TestSessionToken checks that the fixed token of the interface survives a
+// save and a load, and that it can be removed again.
+func TestSessionToken(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	cfg := Default()
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("save the configuration: %v", err)
+	}
+	// The store of the configuration is the one of its directory.
+	store, err := secret.Open(dir)
+	if err != nil {
+		t.Fatalf("open the secret store: %v", err)
+	}
+	cfg.SetStore(store)
+
+	value, err := cfg.SessionToken()
+	if err != nil {
+		t.Fatalf("read the token: %v", err)
+	}
+	if value != "" {
+		t.Fatalf("a token was stored without being asked for: %q", value)
+	}
+
+	if err := cfg.SetSessionToken("fixed-token-value-1234"); err != nil {
+		t.Fatalf("set the token: %v", err)
+	}
+	value, err = cfg.SessionToken()
+	if err != nil {
+		t.Fatalf("read the token: %v", err)
+	}
+	if value != "fixed-token-value-1234" {
+		t.Fatalf("the token is %q", value)
+	}
+
+	// The token is a secret: it must not be in the configuration file.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read the configuration file: %v", err)
+	}
+	if bytes.Contains(data, []byte("fixed-token-value-1234")) {
+		t.Fatal("the token was written to the configuration file")
+	}
+
+	// It survives a load.
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load the configuration: %v", err)
+	}
+	value, err = loaded.SessionToken()
+	if err != nil {
+		t.Fatalf("read the token: %v", err)
+	}
+	if value != "fixed-token-value-1234" {
+		t.Fatalf("the token is %q", value)
+	}
+
+	// An empty value removes it.
+	if err := loaded.SetSessionToken(""); err != nil {
+		t.Fatalf("clear the token: %v", err)
+	}
+	value, err = loaded.SessionToken()
+	if err != nil {
+		t.Fatalf("read the token: %v", err)
+	}
+	if value != "" {
+		t.Fatalf("the token is %q", value)
+	}
+}
+
+// TestValidateInterfaceAddr checks the address of the interface.
+func TestValidateInterfaceAddr(t *testing.T) {
+	if err := ValidateInterfaceAddr(""); err != nil {
+		t.Fatalf("an empty address must be allowed: %v", err)
+	}
+	if err := ValidateInterfaceAddr("127.0.0.1:8787"); err != nil {
+		t.Fatalf("a valid address was refused: %v", err)
+	}
+	if err := ValidateInterfaceAddr("0.0.0.0:80"); err != nil {
+		t.Fatalf("a valid address was refused: %v", err)
+	}
+	for _, addr := range []string{"127.0.0.1", "127.0.0.1:", ":8787", "127.0.0.1:0", "127.0.0.1:99999"} {
+		if err := ValidateInterfaceAddr(addr); err == nil {
+			t.Errorf("the address %q was accepted", addr)
+		}
+	}
+}
+
+// TestValidateSessionToken checks that a token that is too short is refused.
+func TestValidateSessionToken(t *testing.T) {
+	if err := ValidateSessionToken("0123456789abcdef"); err != nil {
+		t.Fatalf("a valid token was refused: %v", err)
+	}
+	if err := ValidateSessionToken("short"); err == nil {
+		t.Fatal("a short token was accepted")
+	}
+}
+
 // TestUpsertTunnelNormalizesTheTarget checks that a stored tunnel keeps the
 // loopback address when it is saved without an address.
 func TestUpsertTunnelNormalizesTheTarget(t *testing.T) {

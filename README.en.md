@@ -124,7 +124,8 @@ system / dark / light themes, and shows the current version and website link in 
 **Logs** shows connection and forwarding events in real time.
 
 **Settings** changes the language, theme, autostart, keepalive interval, connection timeout,
-and reconnect options. Saving connection or reconnect settings restarts running tunnels once.
+and reconnect options, and holds the listen address of the interface and the fixed access
+token. Saving connection or reconnect settings restarts running tunnels once.
 The same `user@host:port` cannot be added twice.
 
 Windows has only one autostart method, so the method selector is hidden; Linux can choose
@@ -136,6 +137,35 @@ Map the management port to the local one through a tunnel (for example local
 the local port of the tunnel does not matter. The address the program prints holds a ticket
 that is valid for 5 minutes; the session token, which stays valid for the whole life of the
 process, is written in the `runtime.json` of the configuration directory (the `url` field).
+
+### Fixed listen address and fixed token
+
+The listen address of the interface is taken from the first source that names one: the
+`--addr` option of the command line, then `settings.addr` of the configuration file, then
+the default `127.0.0.1:8787`.
+
+While `settings.addr` is empty, the interface uses the default address and the `daemon`
+mode opens none: a machine without a desktop does not need one. Once an address is set, the
+daemon opens the management interface on it, which helps to manage a machine remotely:
+
+```bash
+ssh-tunnel config addr set 127.0.0.1:8787   # the daemon opens the interface too
+ssh-tunnel config addr show
+ssh-tunnel config addr clear                # back to the default, the daemon opens none
+```
+
+The session token is made up for every run by default. With a fixed token the same one is
+used every time, so the address does not change:
+
+```bash
+ssh-tunnel config token set --token-env SSH_TUNNEL_TOKEN   # read from the environment
+ssh-tunnel config token show
+ssh-tunnel config token clear                              # back to a random token
+```
+
+The token is a secret: like a password, it lives in the system keyring (in an encrypted file
+when there is none) and is **never written to `config.json`**. It needs at least 16
+characters and takes effect on the next start.
 
 ## CLI management
 

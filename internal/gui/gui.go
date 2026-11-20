@@ -62,11 +62,22 @@ type Server struct {
 }
 
 // New creates a GUI server.
+//
+// The token of the session is the fixed one of the configuration when there
+// is one, so that the address of the interface stays the same over several
+// runs. Without one the program makes a token up for this run.
 func New(mgr *manager.Manager, cfgPath string) *Server {
+	token := ""
+	if value, err := mgr.Config().SessionToken(); err == nil {
+		token = value
+	}
+	if token == "" {
+		token = newToken()
+	}
 	return &Server{
 		mgr:     mgr,
 		cfgPath: cfgPath,
-		token:   newToken(),
+		token:   token,
 		tickets: map[string]time.Time{},
 	}
 }
@@ -562,6 +573,10 @@ type settingsView struct {
 	MaxReconnectDelaySeconds int `json:"maxReconnectDelaySeconds"`
 	// AutoReconnectDefault is used for the hosts that do not override it.
 	AutoReconnectDefault bool `json:"autoReconnectDefault"`
+	// Addr is the address the management interface listens on.
+	Addr string `json:"addr"`
+	// HasSessionToken tells whether a fixed token is stored.
+	HasSessionToken bool `json:"hasSessionToken"`
 }
 
 // mechanismView describes one way of starting the program with the system.
@@ -588,6 +603,10 @@ type autostartView struct {
 // autostart entries.
 func (s *Server) settings() map[string]any {
 	cfg := s.mgr.Config()
+	hasToken := false
+	if value, err := cfg.SessionToken(); err == nil && value != "" {
+		hasToken = true
+	}
 	return map[string]any{
 		"settings": settingsView{
 			Language:                 s.mgr.Config().Settings.LanguageOrDetect(),
@@ -597,6 +616,8 @@ func (s *Server) settings() map[string]any {
 			ReconnectDelaySeconds:    cfg.Settings.ReconnectDelaySeconds,
 			MaxReconnectDelaySeconds: cfg.Settings.MaxReconnectDelaySeconds,
 			AutoReconnectDefault:     cfg.Settings.AutoReconnectDefault,
+			Addr:                     cfg.Settings.Addr,
+			HasSessionToken:          hasToken,
 		},
 		"autostart": s.autostart(),
 	}
@@ -642,6 +663,15 @@ type settingsInput struct {
 	MaxReconnectDelaySeconds *int `json:"maxReconnectDelaySeconds"`
 	// AutoReconnectDefault is used for the hosts that do not override it.
 	AutoReconnectDefault *bool `json:"autoReconnectDefault"`
+	// Addr is the address the management interface listens on. An empty
+	// value means that the default one is used and that the daemon opens no
+	// interface.
+	Addr *string `json:"addr"`
+	// SessionToken is the fixed token of the interface. An empty value
+	// leaves the stored one alone.
+	SessionToken *string `json:"sessionToken"`
+	// ClearSessionToken removes the fixed token.
+	ClearSessionToken bool `json:"clearSessionToken"`
 }
 
 // saveSettings changes the settings of the program.
@@ -691,6 +721,9 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 	if in.AutoReconnectDefault != nil {
 		updated.AutoReconnectDefault = *in.AutoReconnectDefault
 	}
+	if in.Addr != nil {
+		updated.Addr = strings.TrimSpace(*in.Addr)
+	}
 	if err := validateSettings(&updated); err != nil {
 		s.mu.Unlock()
 		s.writeError(w, http.StatusBadRequest, err)
@@ -705,6 +738,25 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err)
 		return
+	}
+
+	// The fixed token lives in the secret store: it is not part of the
+	// configuration file.
+	if in.ClearSessionToken {
+		if err := cfg.SetSessionToken(""); err != nil {
+			s.writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+	} else if in.SessionToken != nil && strings.TrimSpace(*in.SessionToken) != "" {
+		token := strings.TrimSpace(*in.SessionToken)
+		if err := config.ValidateSessionToken(token); err != nil {
+			s.writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := cfg.SetSessionToken(token); err != nil {
+			s.writeError(w, http.StatusInternalServerError, err)
+			return
+		}
 	}
 
 	// The language of the messages follows the choice immediately. A request
@@ -739,6 +791,9 @@ func validateSettings(in *config.Settings) error {
 	}
 	if in.MaxReconnectDelaySeconds < 1 || in.MaxReconnectDelaySeconds > 86400 {
 		return i18n.E("err.setting_out_of_range", i18n.T("field.max_reconnect_delay"), 1, 86400)
+	}
+	if err := config.ValidateInterfaceAddr(in.Addr); err != nil {
+		return err
 	}
 	if in.MaxReconnectDelaySeconds < in.ReconnectDelaySeconds {
 		return i18n.E("err.setting_max_too_small", i18n.T("field.max_reconnect_delay"), i18n.T("field.reconnect_delay"))

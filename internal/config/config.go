@@ -243,6 +243,10 @@ type Settings struct {
 	// Theme is the color scheme of the interface: "auto", "dark" or "light".
 	// An empty value means that the color scheme of the system is used.
 	Theme string `json:"theme,omitempty"`
+	// Addr is the address the management interface listens on. An empty value
+	// means that the default one is used. The daemon opens no interface at
+	// all when the value is empty.
+	Addr string `json:"addr,omitempty"`
 }
 
 // NormalizeTheme maps the spellings of a theme onto the supported ones. It
@@ -1107,6 +1111,87 @@ func ValidateTunnel(t *Tunnel) []error {
 // DefaultTargetHost is the host a target address falls back to when the
 // address is left empty.
 const DefaultTargetHost = "127.0.0.1"
+
+// DefaultInterfaceAddr is the address the management interface listens on
+// when neither the command line nor the configuration names one.
+const DefaultInterfaceAddr = "127.0.0.1:8787"
+
+// sessionTokenAccount is the account the fixed session token is stored
+// under. It belongs to the program and not to a host, so it is not one of
+// the identifiers of the configuration file.
+const sessionTokenAccount = "@interface"
+
+// SessionToken returns the fixed token of the management interface.
+//
+// An empty value means that the program makes one up for every run. The
+// token is a secret: it is kept in the secret store and not in the
+// configuration file.
+func (c *Config) SessionToken() (string, error) {
+	if c.store == nil {
+		return "", nil
+	}
+	value, ok, err := c.store.Get(sessionTokenAccount, secret.FieldSessionToken)
+	if err != nil {
+		return "", i18n.E("err.read_secret", err)
+	}
+	if !ok {
+		return "", nil
+	}
+	return strings.TrimSpace(value), nil
+}
+
+// SetSessionToken stores the fixed token of the management interface. An
+// empty value removes it, so that the program makes one up again.
+func (c *Config) SetSessionToken(token string) error {
+	if c.store == nil {
+		return i18n.E("err.no_secret_store")
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		if err := c.store.Delete(sessionTokenAccount, secret.FieldSessionToken); err != nil {
+			return i18n.E("err.write_secret", err)
+		}
+		return nil
+	}
+	if err := c.store.Put(sessionTokenAccount, secret.FieldSessionToken, token); err != nil {
+		return i18n.E("err.write_secret", err)
+	}
+	return nil
+}
+
+// ValidateInterfaceAddr checks the address the management interface listens
+// on. An empty address is allowed: it means that the default one is used.
+func ValidateInterfaceAddr(addr string) error {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return nil
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return i18n.E("err.address_invalid", i18n.T("field.interface_addr"), addr, err)
+	}
+	if host == "" {
+		return i18n.E("err.address_missing_host", i18n.T("field.interface_addr"), addr)
+	}
+	p, err := strconv.Atoi(port)
+	if err != nil || p < 1 || p > 65535 {
+		return i18n.E("err.address_invalid_port", i18n.T("field.interface_addr"), addr)
+	}
+	return nil
+}
+
+// MinSessionTokenLength is the shortest fixed token that is accepted. A
+// shorter one is too easy to guess.
+const MinSessionTokenLength = 16
+
+// ValidateSessionToken checks a fixed token of the management interface.
+func ValidateSessionToken(token string) error {
+	token = strings.TrimSpace(token)
+	if len(token) < MinSessionTokenLength {
+		return i18n.E("err.token_too_short", MinSessionTokenLength)
+	}
+	return nil
+}
 
 // NormalizeTunnel fills in the parts of a tunnel that may be left out. The
 // target of a local or of a remote forward points at the loopback address
