@@ -68,6 +68,10 @@ Global options:
 	"err.unknown_language":  "unsupported language %q, available: zh-CN, en-US",
 	"err.unknown_theme":     "unsupported theme %q, available: auto, dark, light",
 
+	// Reasons a request of the interface is refused
+	"err.forbidden_token":  "the session token is missing or expired; open this page with the address printed by the program",
+	"err.forbidden_origin": "the origin of the request is not allowed; open this page with the address printed by the program",
+
 	"msg.error_line":  "error: %v",
 	"msg.lang_option": "--lang",
 

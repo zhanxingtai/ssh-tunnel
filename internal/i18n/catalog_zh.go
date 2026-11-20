@@ -68,6 +68,10 @@ var catalogZh = catalog{
 	"err.unknown_language":  "不支持的语言 %q，可用：zh-CN、en-US",
 	"err.unknown_theme":     "不支持的主题 %q，可用：auto、dark、light",
 
+	// 界面请求被拒绝的原因
+	"err.forbidden_token":  "会话令牌缺失或已失效，请用程序打印的地址打开此页面",
+	"err.forbidden_origin": "请求来源不被允许，请用程序打印的地址打开此页面",
+
 	"msg.error_line":  "错误：%v",
 	"msg.lang_option": "--lang",
 

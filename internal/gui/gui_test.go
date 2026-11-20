@@ -460,6 +460,95 @@ func TestTheApiRefusesAnotherOrigin(t *testing.T) {
 	}
 }
 
+// TestTheApiAcceptsARequestThroughATunnel checks that the interface can be
+// reached through a tunnel: the browser uses the local port of the tunnel,
+// which is not the port the server listens on.
+func TestTheApiAcceptsARequestThroughATunnel(t *testing.T) {
+	ts, path := testServer(t)
+	req := ts.request(http.MethodPost, "/api/hosts", bytes.NewReader([]byte(
+		`{"name":"web","host":"10.0.0.1","port":22,`+
+			`"auth":{"user":"root","password":"secret"}}`)))
+	// The address of the tunnel is the one the browser uses.
+	req.Host = "127.0.0.1:8788"
+	req.Header.Set("Origin", "http://127.0.0.1:8788")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post hosts: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a request through a tunnel was refused: %d", resp.StatusCode)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load the configuration: %v", err)
+	}
+	if len(cfg.Hosts) != 1 {
+		t.Fatalf("the host was not saved: %+v", cfg.Hosts)
+	}
+}
+
+// TestTheApiRefusesAnotherLocalPort checks that a page served on another
+// port of the machine cannot drive the program.
+func TestTheApiRefusesAnotherLocalPort(t *testing.T) {
+	ts, _ := testServer(t)
+	req := ts.request(http.MethodPost, "/api/hosts", bytes.NewReader([]byte("{}")))
+	req.Host = "127.0.0.1:8788"
+	req.Header.Set("Origin", "http://127.0.0.1:9999")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post hosts: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("a request from another local port was accepted: %d", resp.StatusCode)
+	}
+}
+
+// TestTheApiTellsWhyItRefusesARequest checks that the interface is told the
+// reason of the refusal, so that it does not blame the token when the origin
+// is the problem.
+func TestTheApiTellsWhyItRefusesARequest(t *testing.T) {
+	ts, _ := testServer(t)
+
+	// A request without the token.
+	resp, err := http.Get(ts.URL + "/api/hosts")
+	if err != nil {
+		t.Fatalf("get hosts: %v", err)
+	}
+	code := refusedCode(t, resp)
+	resp.Body.Close()
+	if code != forbiddenToken {
+		t.Fatalf("unexpected reason %q", code)
+	}
+
+	// A request that comes from another site.
+	req := ts.request(http.MethodPost, "/api/hosts", bytes.NewReader([]byte("{}")))
+	req.Header.Set("Origin", "http://example.com")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post hosts: %v", err)
+	}
+	code = refusedCode(t, resp)
+	resp.Body.Close()
+	if code != forbiddenOrigin {
+		t.Fatalf("unexpected reason %q", code)
+	}
+}
+
+// refusedCode returns the reason a refused request carries.
+func refusedCode(t *testing.T, resp *http.Response) string {
+	t.Helper()
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("read the answer: %v", err)
+	}
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("the request was not refused: %d", resp.StatusCode)
+	}
+	return body["code"]
+}
+
 func TestSaveHostDefaultsToPasswordAuth(t *testing.T) {
 	ts, path := testServer(t)
 	code, body := post(t, ts, "/api/hosts", map[string]any{

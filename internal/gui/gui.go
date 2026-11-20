@@ -181,6 +181,18 @@ const (
 	ticketLifetime = 5 * time.Minute
 )
 
+// The reasons a request of the interface is refused. They are sent to the
+// interface, so that it can tell a missing token from a request that comes
+// from another site.
+const (
+	// forbiddenToken means that the request does not carry the token of the
+	// session.
+	forbiddenToken = "forbidden_token"
+	// forbiddenOrigin means that the request does not come from the
+	// interface itself.
+	forbiddenOrigin = "forbidden_origin"
+)
+
 // authorize rejects the requests that do not come from the interface of this
 // run of the program.
 //
@@ -188,16 +200,16 @@ const (
 // address or in a cookie. A short-lived ticket is accepted as well: it is
 // what the address the program opens carries.
 //
-// The origin of the request must be the one of the server, so that a page of
-// another site cannot drive the program.
+// The origin of the request must be the one of the interface, so that a page
+// of another site cannot drive the program.
 func (s *Server) authorize(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.allowed(r) {
-			http.Error(w, "forbidden", http.StatusForbidden)
+			s.writeForbidden(w, forbiddenToken)
 			return
 		}
 		if !s.sameOrigin(r) {
-			http.Error(w, "forbidden", http.StatusForbidden)
+			s.writeForbidden(w, forbiddenOrigin)
 			return
 		}
 		next(w, r)
@@ -231,9 +243,13 @@ func (s *Server) allowed(r *http.Request) bool {
 
 // sameOrigin tells whether the request comes from the interface itself.
 //
-// The host of the request is not used: it is chosen by the client, and a page
-// of another site could pretend to be the server. Only the address the server
-// listens on is accepted.
+// The origin is compared with the address of the request: the browser sends
+// both, and they are the same for a request that comes from the interface.
+// They carry the local port of the tunnel when the interface is reached
+// through one, which is not the port the server listens on.
+//
+// The host is only trusted when it is the address of the server or a loopback
+// name: a page of another site could pretend to be the server.
 func (s *Server) sameOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
@@ -251,15 +267,29 @@ func (s *Server) sameOrigin(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	want := s.port
-	if want == "" {
-		// The server was not started by Listen: the port of the request is
-		// the only one that is known.
-		_, want, _ = net.SplitHostPort(r.Host)
-	}
-	if port != want {
+	if !s.trustedHost(host) {
 		return false
 	}
+	// The browser sends the address of the page in the host of the request.
+	// A request that comes from the interface carries it in the origin as
+	// well: the two are the same.
+	if reqHost, reqPort, err := net.SplitHostPort(r.Host); err == nil {
+		if strings.EqualFold(host, reqHost) && port == reqPort {
+			return true
+		}
+	}
+	// The port of the server is accepted as well: a client may send the
+	// address of the server instead of the one of the page.
+	return s.port != "" && port == s.port
+}
+
+// trustedHost tells whether the host of an origin may drive the program.
+//
+// The server trusts its own address and the loopback names: the interface is
+// served on the loopback address of the machine when it is reached through a
+// tunnel. Any other name is refused, because a page of another site could
+// pretend to be the server.
+func (s *Server) trustedHost(host string) bool {
 	if s.wildcard {
 		// The server listens on every address of the machine: the token is
 		// the only defense left.
@@ -985,4 +1015,16 @@ func (s *Server) writeError(w http.ResponseWriter, code int, err error) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+}
+
+// writeForbidden answers a request that the program refuses. The code tells
+// the interface what the reason is, so that it does not blame the token when
+// the origin is the problem.
+func (s *Server) writeForbidden(w http.ResponseWriter, code string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusForbidden)
+	json.NewEncoder(w).Encode(map[string]string{
+		"error": i18n.T("err." + code),
+		"code":  code,
+	})
 }

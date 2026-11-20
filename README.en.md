@@ -130,6 +130,13 @@ The same `user@host:port` cannot be added twice.
 Windows has only one autostart method, so the method selector is hidden; Linux can choose
 between XDG, systemd, and crontab.
 
+On a remote deployment the interface only listens on the loopback address of the machine.
+Map the management port to the local one through a tunnel (for example local
+`127.0.0.1:8788` → remote `127.0.0.1:8787`), then open the address that carries the token;
+the local port of the tunnel does not matter. The address the program prints holds a ticket
+that is valid for 5 minutes; the session token, which stays valid for the whole life of the
+process, is written in the `runtime.json` of the configuration directory (the `url` field).
+
 ## CLI management
 
 ```bash

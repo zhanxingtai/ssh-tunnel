@@ -124,7 +124,8 @@ const I18N = {
     'ui.delete_tunnel_confirm': '删除该隧道？',
     'ui.connecting_now': '正在连接…',
     'ui.connect_ok': '连接成功',
-    'ui.forbidden': '会话令牌无效，请用程序打印的地址打开此页面',
+    'ui.forbidden': '会话令牌缺失或已失效，请用程序打印的地址打开此页面',
+    'ui.forbidden_origin': '请求来源不被允许，请用程序打印的地址打开此页面',
   },
   'en-US': {
     'ui.brand_sub': 'Tunnel Manager',
@@ -245,7 +246,8 @@ const I18N = {
     'ui.delete_tunnel_confirm': 'Delete this tunnel?',
     'ui.connecting_now': 'Connecting…',
     'ui.connect_ok': 'Connected',
-    'ui.forbidden': 'The session token is missing; open this page with the address printed by the program',
+    'ui.forbidden': 'The session token is missing or expired; open this page with the address printed by the program',
+    'ui.forbidden_origin': 'The origin of the request is not allowed; open this page with the address printed by the program',
   },
 };
 

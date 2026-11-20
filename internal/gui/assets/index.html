@@ -557,7 +557,12 @@ async function api(path, opts) {
   if (token) opts.headers['X-SSH-Tunnel-Token'] = token;
   const res = await fetch('/api/' + path, opts);
   const data = await res.json().catch(() => ({}));
-  if (res.status === 403) throw new Error(t('ui.forbidden'));
+  if (res.status === 403) {
+    // The program tells why the request was refused: a missing token and an
+    // unknown origin are two different problems.
+    if (data.code === 'forbidden_origin') throw new Error(t('ui.forbidden_origin'));
+    throw new Error(t('ui.forbidden'));
+  }
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
 }
