@@ -202,6 +202,30 @@ func TestNormalizeTunnel(t *testing.T) {
 	}
 }
 
+// TestMapping checks the way a mapping is written for the user: the address
+// of the service first, then the address where it is exposed, with the
+// machine each address belongs to in front of it.
+func TestMapping(t *testing.T) {
+	cases := []struct {
+		tunnel Tunnel
+		want   string
+	}{
+		{Tunnel{Type: ForwardLocal, Listen: "0.0.0.0:8415", Target: "127.0.0.1:8405"},
+			"R:127.0.0.1:8405 -> L:0.0.0.0:8415"},
+		{Tunnel{Type: ForwardRemote, Listen: "192.168.1.10:8090", Target: "127.0.0.1:8090"},
+			"L:127.0.0.1:8090 -> R:192.168.1.10:8090"},
+		{Tunnel{Type: ForwardSocks5, Listen: "127.0.0.1:1080"},
+			"R:any -> L:127.0.0.1:1080"},
+		{Tunnel{Type: ForwardSocks5, Listen: "127.0.0.1:1080", Target: "10.0.0.5:80"},
+			"R:10.0.0.5:80 -> L:127.0.0.1:1080"},
+	}
+	for _, c := range cases {
+		if got := c.tunnel.Mapping(); got != c.want {
+			t.Errorf("the mapping of a %s tunnel is %q, want %q", c.tunnel.Type, got, c.want)
+		}
+	}
+}
+
 // TestUpsertTunnelNormalizesTheTarget checks that a stored tunnel keeps the
 // loopback address when it is saved without an address.
 func TestUpsertTunnelNormalizesTheTarget(t *testing.T) {

@@ -46,6 +46,9 @@ var catalogZh = catalog{
   remote  远程转发（本地端口 → 远端）
   socks5  动态代理（SOCKS5）
 
+远程转发的远端监听地址由服务端 sshd 决定是否生效：sshd_config 的 GatewayPorts 默认是 no，
+只监听 127.0.0.1；要让填写的 0.0.0.0 或某个具体地址生效，改成 clientspecified 后重启 sshd。
+
 通用参数：
   --config <文件>
 
@@ -98,7 +101,6 @@ var catalogZh = catalog{
 	"msg.autostart_status_disabled": "已禁用（%s）",
 
 	"msg.auto_start_marker": "  自动启动",
-	"msg.dynamic_target":    "（动态）",
 	// 配置命令行
 	"err.config_requires_action":  "config 需要以下之一：path、list、show、host、tunnel",
 	"err.unknown_config_action":   "未知的 config 操作 %q",
@@ -213,11 +215,13 @@ var catalogZh = catalog{
 	"log.local_forward_listening":  "本地转发 %s → %s 已开始监听",
 	"log.local_forward_failed":     "本地转发 %s → %s：%v",
 	"log.remote_forward_listening": "远程转发 %s → %s 已开始监听",
-	"log.remote_forward_failed":    "远程转发 %s → %s：%v",
-	"log.socks5_listening":         "SOCKS5 代理已在 %s 上监听",
-	"log.socks5_handshake_failed":  "SOCKS5 握手失败：%v",
-	"log.socks5_request_failed":    "SOCKS5 请求失败：%v",
-	"log.socks5_connect_failed":    "SOCKS5 连接 %s 失败：%v",
+	"log.remote_forward_gateway_ports": "远端监听地址 %s 不是回环地址：SSH 服务端默认只把远端端口绑定到 127.0.0.1，这个地址不会生效；" +
+		"请在服务端的 sshd_config 中设置 GatewayPorts clientspecified 后重启 sshd（设成 yes 则一律绑定到 0.0.0.0，不理会指定的具体地址）。",
+	"log.remote_forward_failed":   "远程转发 %s → %s：%v",
+	"log.socks5_listening":        "SOCKS5 代理已在 %s 上监听",
+	"log.socks5_handshake_failed": "SOCKS5 握手失败：%v",
+	"log.socks5_request_failed":   "SOCKS5 请求失败：%v",
+	"log.socks5_connect_failed":   "SOCKS5 连接 %s 失败：%v",
 
 	"err.cannot_listen_text": "无法监听 %s：%v",
 	// 转发

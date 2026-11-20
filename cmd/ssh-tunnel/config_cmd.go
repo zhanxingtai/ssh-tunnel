@@ -84,11 +84,7 @@ func configList(args []string) error {
 			if t.AutoStart {
 				auto = i18n.T("msg.auto_start_marker")
 			}
-			mapping := t.Listen + " → " + t.Target
-			if t.Type == config.ForwardSocks5 && t.Target == "" {
-				mapping = t.Listen + " →" + i18n.T("msg.dynamic_target")
-			}
-			console.Printf("  %-8s %-20s %-10s %s%s\n", t.ID, t.DisplayName(), config.TypeLabel(t.Type), mapping, auto)
+			console.Printf("  %-8s %-20s %-10s %s%s\n", t.ID, t.DisplayName(), config.TypeLabel(t.Type), t.Mapping(), auto)
 		}
 	}
 	return nil

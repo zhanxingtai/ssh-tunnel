@@ -46,6 +46,11 @@ Tunnel types:
   remote  remote forward (local port -> remote)
   socks5  dynamic proxy (SOCKS5)
 
+The SSH server decides whether the remote listen address of a remote forward
+takes effect: GatewayPorts in sshd_config is no by default, which binds the
+port to 127.0.0.1 only. Use clientspecified and restart sshd to make 0.0.0.0
+or a specific address work.
+
 Common options:
   --config <file>
 
@@ -98,7 +103,6 @@ Global options:
 	"msg.autostart_status_disabled": "disabled (%s)",
 
 	"msg.auto_start_marker": "  auto-start",
-	"msg.dynamic_target":    " (dynamic)",
 	// Configuration command line
 	"err.config_requires_action":  "config requires one of: path, list, show, host, tunnel",
 	"err.unknown_config_action":   "unknown config action %q",
@@ -213,11 +217,14 @@ Global options:
 	"log.local_forward_listening":  "local forward %s -> %s listening",
 	"log.local_forward_failed":     "local forward %s -> %s: %v",
 	"log.remote_forward_listening": "remote forward %s -> %s listening",
-	"log.remote_forward_failed":    "remote forward %s -> %s: %v",
-	"log.socks5_listening":         "socks5 proxy listening on %s",
-	"log.socks5_handshake_failed":  "socks5 handshake failed: %v",
-	"log.socks5_request_failed":    "socks5 request failed: %v",
-	"log.socks5_connect_failed":    "socks5 connect to %s failed: %v",
+	"log.remote_forward_gateway_ports": "the remote listen address %s is not a loopback address: the SSH server binds remote ports " +
+		"to 127.0.0.1 by default, so this address does not take effect; set GatewayPorts clientspecified in the " +
+		"sshd_config of the server and restart sshd (yes always binds to 0.0.0.0 and ignores the address that was asked for).",
+	"log.remote_forward_failed":   "remote forward %s -> %s: %v",
+	"log.socks5_listening":        "socks5 proxy listening on %s",
+	"log.socks5_handshake_failed": "socks5 handshake failed: %v",
+	"log.socks5_request_failed":   "socks5 request failed: %v",
+	"log.socks5_connect_failed":   "socks5 connect to %s failed: %v",
 
 	"err.cannot_listen_text": "cannot listen on %s: %v",
 	// Forwarding

@@ -193,6 +193,28 @@ func (t Tunnel) DisplayName() string {
 	return TypeLabel(t.Type)
 }
 
+// Mapping describes the mapping of a tunnel the way it is shown to the user.
+//
+// The address of the service comes first, then the address where the service
+// is exposed. L marks this machine and R marks the SSH server. A local
+// forward exposes a service of the server here, a remote forward exposes a
+// service of this machine there. A SOCKS5 proxy without a target reaches any
+// destination through the server, which "any" stands for.
+func (t Tunnel) Mapping() string {
+	switch t.Type {
+	case ForwardRemote:
+		return "L:" + t.Target + " -> R:" + t.Listen
+	case ForwardSocks5:
+		target := t.Target
+		if target == "" {
+			target = "any"
+		}
+		return "R:" + target + " -> L:" + t.Listen
+	default:
+		return "R:" + t.Target + " -> L:" + t.Listen
+	}
+}
+
 // TypeLabel returns the human readable name of a tunnel type.
 func TypeLabel(t string) string {
 	switch t {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"strings"
 	"sync"
 
 	"ssh-tunnel/internal/i18n"
@@ -90,6 +91,30 @@ func StartLocalForward(ctx context.Context, client SSH, listen, remote string, l
 	return stop, nil
 }
 
+// IsLoopbackListen reports whether a listen address stays on the loopback
+// interface of the machine that listens.
+//
+// It matters for a remote forward: the SSH server binds the remote port
+// itself. It only keeps the address the client asked for when its
+// GatewayPorts option allows it, and binds the loopback address otherwise.
+func IsLoopbackListen(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		// An address without a port is invalid; the whole value is
+		// read as the host.
+		host = addr
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // StartRemoteForward asks the SSH server to listen on remoteListen and
 // connects every accepted connection to remote on this machine.
 func StartRemoteForward(ctx context.Context, client SSH, remoteListen, remote string, logf LogFunc) (func(), error) {
@@ -103,6 +128,12 @@ func StartRemoteForward(ctx context.Context, client SSH, remoteListen, remote st
 		stop()
 	}()
 	logf("%s", i18n.T("log.remote_forward_listening", remoteListen, remote))
+	if !IsLoopbackListen(remoteListen) {
+		// The server may bind the remote port somewhere else than the
+		// address that was asked for. Say so, otherwise the tunnel looks
+		// broken without any clue about the reason.
+		logf("%s", i18n.T("log.remote_forward_gateway_ports", remoteListen))
+	}
 	go func() {
 		for {
 			conn, err := ln.Accept()

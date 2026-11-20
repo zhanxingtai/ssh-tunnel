@@ -464,6 +464,8 @@ type hostView struct {
 type tunnelView struct {
 	config.Tunnel
 	HostName string `json:"hostName,omitempty"`
+	// Mapping is the mapping written the way the interface shows it.
+	Mapping string `json:"mapping,omitempty"`
 }
 
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
@@ -810,7 +812,7 @@ func (s *Server) tunnels() []tunnelView {
 	cfg := s.mgr.Config()
 	out := make([]tunnelView, 0, len(cfg.Tunnels))
 	for _, t := range cfg.Tunnels {
-		v := tunnelView{Tunnel: t}
+		v := tunnelView{Tunnel: t, Mapping: t.Mapping()}
 		if h, ok := cfg.HostByID(t.HostID); ok {
 			v.HostName = h.DisplayName()
 		}

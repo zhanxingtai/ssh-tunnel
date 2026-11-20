@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -85,6 +86,81 @@ func TestLocalForward(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if string(body) != "hello from backend" {
 		t.Fatalf("unexpected body %q", body)
+	}
+}
+
+func TestIsLoopbackListen(t *testing.T) {
+	cases := []struct {
+		addr string
+		want bool
+	}{
+		{"127.0.0.1:8080", true},
+		{"127.0.0.2:8080", true},
+		{"[::1]:8080", true},
+		{"localhost:8080", true},
+		{"0.0.0.0:8080", false},
+		{"192.168.1.10:8080", false},
+		{"example.com:8080", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := IsLoopbackListen(c.addr); got != c.want {
+			t.Errorf("IsLoopbackListen(%q) = %v, want %v", c.addr, got, c.want)
+		}
+	}
+}
+
+// recorder collects the messages of a forwarder.
+type recorder struct {
+	mu   sync.Mutex
+	logs []string
+}
+
+func (r *recorder) logf(format string, args ...any) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.logs = append(r.logs, fmt.Sprintf(format, args...))
+}
+
+func (r *recorder) text() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return strings.Join(r.logs, "\n")
+}
+
+// A remote forward that listens outside of the loopback interface only
+// works when the SSH server honours the address, which depends on its
+// GatewayPorts option. The user has to be told about it.
+func TestRemoteForwardGatewayPortsHint(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	logs := &recorder{}
+	stop, err := StartRemoteForward(ctx, fakeSSH{}, "0.0.0.0:0", "127.0.0.1:9", logs.logf)
+	if err != nil {
+		t.Fatalf("start remote forward: %v", err)
+	}
+	defer stop()
+
+	if !strings.Contains(logs.text(), "GatewayPorts") {
+		t.Fatalf("the GatewayPorts hint is missing from the log:\n%s", logs.text())
+	}
+}
+
+// A remote forward that listens on the loopback interface needs no hint.
+func TestRemoteForwardLoopbackNoHint(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	logs := &recorder{}
+	stop, err := StartRemoteForward(ctx, fakeSSH{}, "127.0.0.1:0", "127.0.0.1:9", logs.logf)
+	if err != nil {
+		t.Fatalf("start remote forward: %v", err)
+	}
+	defer stop()
+
+	if strings.Contains(logs.text(), "GatewayPorts") {
+		t.Fatalf("the GatewayPorts hint should not be logged:\n%s", logs.text())
 	}
 }
 

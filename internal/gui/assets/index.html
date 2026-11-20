@@ -229,6 +229,25 @@
   }
 
   .muted { color: var(--muted); }
+  .hint-warn { color: var(--warn); }
+
+  /* 表单里的说明块 */
+  .help {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--subpanel);
+    padding: 9px 12px;
+  }
+  .help summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+  .help summary::marker { color: var(--muted2); }
+  .help-body { margin-top: 10px; font-size: 12px; line-height: 1.65; color: var(--fg2); }
+  .help-body p { margin: 0 0 6px; }
+  .help-body ul { margin: 6px 0 0; padding-left: 18px; }
+  .help-body li { margin: 3px 0; }
+  .help-table { width: 100%; border-collapse: collapse; margin: 4px 0 2px; }
+  .help-table td { padding: 4px 6px; border-top: 1px solid var(--line); vertical-align: top; }
+  .help-table td:first-child {
+    white-space: nowrap; color: var(--chip-fg);
+    font-family: ui-monospace, Consolas, monospace; font-size: 11px;
+  }
 
   /* 对话框 */
   dialog {
@@ -434,9 +453,31 @@
       <div class="field full">
         <label id="t_listenlabel">监听地址</label>
         <div class="addr-row">
-          <div class="field"><label for="t_listen_host" data-i18n="ui.field_address">地址</label><input id="t_listen_host" placeholder="127.0.0.1" value="127.0.0.1" required></div>
+          <div class="field"><label for="t_listen_host" data-i18n="ui.field_address">地址</label><input id="t_listen_host" placeholder="127.0.0.1" value="127.0.0.1" oninput="updateListenHint()" required></div>
           <div class="field"><label for="t_listen_port" data-i18n="ui.field_port">端口</label><input id="t_listen_port" type="number" min="1" max="65535" placeholder="8080" required></div>
         </div>
+        <p class="small hint-warn hidden" id="t_listenhint"></p>
+      </div>
+      <div class="field full hidden" id="t_sshhelpwrap">
+        <details class="help" id="t_sshhelp">
+          <summary data-i18n="ui.ssh_help_title">SSH 服务端配置说明</summary>
+          <div class="help-body">
+            <p data-i18n="ui.ssh_help_intro"></p>
+            <p data-i18n="ui.ssh_help_gp_title"></p>
+            <table class="help-table">
+              <tr><td>no</td><td data-i18n="ui.ssh_help_gp_no"></td></tr>
+              <tr><td>yes</td><td data-i18n="ui.ssh_help_gp_yes"></td></tr>
+              <tr><td>clientspecified</td><td data-i18n="ui.ssh_help_gp_clientspecified"></td></tr>
+            </table>
+            <ul>
+              <li data-i18n="ui.ssh_help_change"></li>
+              <li data-i18n="ui.ssh_help_verify"></li>
+              <li data-i18n="ui.ssh_help_allow"></li>
+              <li data-i18n="ui.ssh_help_loopback"></li>
+              <li data-i18n="ui.ssh_help_firewall"></li>
+            </ul>
+          </div>
+        </details>
       </div>
       <div class="field full">
         <label id="t_targetlabel">目标地址</label>
@@ -701,9 +742,7 @@ function chipsOf(host) {
 
 function tunnelRow(tunnel) {
   const s = statusOf(tunnel.id);
-  const mapping = tunnel.type === 'socks5'
-    ? `${tunnel.listen}${tunnel.target ? ' → ' + tunnel.target : ' ' + t('ui.dynamic')}`
-    : `${tunnel.listen} → ${tunnel.target}`;
+  const mapping = tunnel.mapping || '';
   const running = s.state === 'connected' || s.state === 'connecting' || s.state === 'reconnecting';
   const detail = [
     stateLabel(s.state),
@@ -1094,6 +1133,34 @@ function joinAddress(host, port) {
   return host.includes(':') ? '[' + host + ']:' + port : host + ':' + port;
 }
 
+/* isLoopbackHost reports whether an address stays on the loopback
+   interface. The SSH server binds the remote port of a remote forward
+   itself: it only keeps the address that was asked for when its
+   GatewayPorts option allows it. */
+function isLoopbackHost(host) {
+  const value = (host || '').trim().toLowerCase();
+  if (!value) return false;
+  if (value === 'localhost' || value === '::1') return true;
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(value);
+}
+
+/* updateListenHint tells the user that the address of a remote forward is
+   only used when the SSH server honours it. */
+function updateListenHint() {
+  const hint = document.getElementById('t_listenhint');
+  const type = document.getElementById('t_type').value;
+  const host = document.getElementById('t_listen_host').value;
+  const show = type === 'remote' && !isLoopbackHost(host);
+  hint.textContent = show ? t('ui.gateway_ports_hint') : '';
+  hint.classList.toggle('hidden', !show);
+}
+
+/* The explanation of the server side belongs to the remote forward only. */
+function updateSshHelp() {
+  const wrap = document.getElementById('t_sshhelpwrap');
+  wrap.classList.toggle('hidden', document.getElementById('t_type').value !== 'remote');
+}
+
 function tunnelTypeChanged() {
   const type = document.getElementById('t_type').value;
   const listen = document.getElementById('t_listenlabel');
@@ -1130,6 +1197,8 @@ function tunnelTypeChanged() {
   const dynamic = type === 'socks5';
   hint.textContent = dynamic ? '' : t('ui.target_default_hint');
   hint.classList.toggle('hidden', dynamic);
+  updateListenHint();
+  updateSshHelp();
 }
 
 function openTunnelForm(hostId, tunnelId) {
@@ -1181,6 +1250,12 @@ async function saveTunnel() {
   if (type === 'socks5' && (!!targetHost !== !!targetPort)) {
     errEl.textContent = t('ui.target_pair_required');
     return;
+  }
+  // The SSH server binds the remote port of a remote forward itself. It
+  // only keeps the address that was asked for when its GatewayPorts option
+  // allows it, so the user is warned before the tunnel looks broken.
+  if (type === 'remote' && !isLoopbackHost(document.getElementById('t_listen_host').value)) {
+    if (!confirm(t('ui.gateway_ports_confirm'))) return;
   }
   const existing = tunnels.find(x => x.id === document.getElementById('tunndlg').dataset.tunnel);
   const payload = {
