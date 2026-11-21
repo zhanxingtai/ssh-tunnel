@@ -2,4 +2,4 @@
 package version
 
 // Version is the released version of ssh-tunnel.
-const Version = "0.7.3"
+const Version = "0.7.4"
