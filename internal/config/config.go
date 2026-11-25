@@ -51,6 +51,9 @@ const (
 	// ForwardSocks5 is a local SOCKS5 proxy. Without a target it is a dynamic
 	// proxy: every destination is reached through the SSH server.
 	ForwardSocks5 = "socks5"
+	// ForwardHTTP is a local HTTP CONNECT proxy. Without a target it is a
+	// dynamic proxy: every destination is reached through the SSH server.
+	ForwardHTTP = "http"
 )
 
 // Auth describes how the client authenticates against the SSH server.
@@ -204,7 +207,7 @@ func (t Tunnel) Mapping() string {
 	switch t.Type {
 	case ForwardRemote:
 		return "L:" + t.Target + " -> R:" + t.Listen
-	case ForwardSocks5:
+	case ForwardSocks5, ForwardHTTP:
 		target := t.Target
 		if target == "" {
 			target = "any"
@@ -224,6 +227,8 @@ func TypeLabel(t string) string {
 		return i18n.T("type.remote")
 	case ForwardSocks5:
 		return i18n.T("type.socks5")
+	case ForwardHTTP:
+		return i18n.T("type.http")
 	default:
 		return t
 	}
@@ -1086,15 +1091,15 @@ func ValidateTunnel(t *Tunnel) []error {
 		errs = append(errs, i18n.E("err.tunnel_needs_host"))
 	}
 	switch t.Type {
-	case ForwardLocal, ForwardRemote, ForwardSocks5:
+	case ForwardLocal, ForwardRemote, ForwardSocks5, ForwardHTTP:
 	default:
 		errs = append(errs, i18n.E("err.unknown_tunnel_type", t.Type))
 	}
 	if err := checkHostPort(i18n.T("field.listen_address"), t.Listen); err != nil {
 		errs = append(errs, err)
 	}
-	if t.Type == ForwardSocks5 {
-		// A SOCKS5 proxy is dynamic when no target is given.
+	if t.Type == ForwardSocks5 || t.Type == ForwardHTTP {
+		// A dynamic proxy reaches any destination when no target is given.
 		if t.Target != "" {
 			if err := checkHostPort(i18n.T("field.target_address"), t.Target); err != nil {
 				errs = append(errs, err)
@@ -1198,7 +1203,7 @@ func ValidateSessionToken(token string) error {
 // when no address is given, so that only a port has to be filled in. The
 // target of a SOCKS5 proxy stays empty, such a proxy is dynamic then.
 func NormalizeTunnel(t *Tunnel) {
-	if t == nil || t.Type == ForwardSocks5 {
+	if t == nil || t.Type == ForwardSocks5 || t.Type == ForwardHTTP {
 		return
 	}
 	t.Target = withDefaultHost(t.Target)

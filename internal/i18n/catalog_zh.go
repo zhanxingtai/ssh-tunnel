@@ -44,7 +44,7 @@ var catalogZh = catalog{
   --passphrase-env <变量> 从环境变量读取私钥口令
 
 隧道选项：
-  --name <显示名> --host <所属主机> --type <local|remote|socks5>
+  --name <显示名> --host <所属主机> --type <local|remote|socks5|http>
   --listen <监听地址> --target <目标地址> --auto-start --no-auto-start
 
 固定令牌选项（令牌存在凭据存储里，不写进配置文件）：
@@ -56,6 +56,7 @@ var catalogZh = catalog{
   local   本地转发（远端端口 → 本地）
   remote  远程转发（本地端口 → 远端）
   socks5  动态代理（SOCKS5）
+  http    动态代理（HTTP CONNECT）
 
 远程转发的远端监听地址由服务端 sshd 决定是否生效：sshd_config 的 GatewayPorts 默认是 no，
 只监听 127.0.0.1；要让填写的 0.0.0.0 或某个具体地址生效，改成 clientspecified 后重启 sshd。
@@ -256,6 +257,10 @@ var catalogZh = catalog{
 	"log.socks5_handshake_failed": "SOCKS5 握手失败：%v",
 	"log.socks5_request_failed":   "SOCKS5 请求失败：%v",
 	"log.socks5_connect_failed":   "SOCKS5 连接 %s 失败：%v",
+	"log.http_listening":          "HTTP 代理已在 %s 上监听",
+	"log.http_request_failed":     "HTTP 代理请求失败：%v",
+	"log.http_connect_failed":     "HTTP 代理连接 %s 失败：%v",
+	"log.http_forward_failed":     "HTTP 代理转发请求失败：%v",
 
 	"err.cannot_listen_text": "无法监听 %s：%v",
 	// 转发
@@ -263,6 +268,9 @@ var catalogZh = catalog{
 	"err.unsupported_socks_version": "不支持的 SOCKS 版本 %d",
 	"err.unsupported_command":       "不支持的命令 %d",
 	"err.unsupported_address_type":  "不支持的地址类型 %d",
+	"err.http_request_invalid":     "HTTP 请求无效：%v",
+	"err.http_method_unsupported":  "不支持的 HTTP 方法 %s（仅支持 CONNECT）",
+	"err.http_target_invalid":      "CONNECT 目标 %q 无效",
 
 	"err.autostart_unsupported":           "当前平台不支持自启动",
 	"err.unknown_autostart_kind":          "未知的自启动方式 %q，可用：%v",
@@ -346,6 +354,7 @@ var catalogZh = catalog{
 	"type.local":    "本地转发",
 	"type.remote":   "远程转发",
 	"type.socks5":   "SOCKS5 代理",
+	"type.http":     "HTTP 代理",
 	"auth.key":      "私钥认证",
 	"auth.password": "密码认证",
 	"auth.agent":    "SSH Agent",

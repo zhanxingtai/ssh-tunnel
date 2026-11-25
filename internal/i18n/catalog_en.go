@@ -44,7 +44,7 @@ Ways of reading a credential (so that it stays out of the process list):
   --passphrase-env <name> read the passphrase from an environment variable
 
 Tunnel options:
-  --name <name> --host <host> --type <local|remote|socks5>
+  --name <name> --host <host> --type <local|remote|socks5|http>
   --listen <listen address> --target <target address> --auto-start --no-auto-start
 
 Fixed token options (the token lives in the credential store, not in the
@@ -57,6 +57,7 @@ Tunnel types:
   local   local forward (remote port -> local)
   remote  remote forward (local port -> remote)
   socks5  dynamic proxy (SOCKS5)
+  http    dynamic proxy (HTTP CONNECT)
 
 The SSH server decides whether the remote listen address of a remote forward
 takes effect: GatewayPorts in sshd_config is no by default, which binds the
@@ -263,6 +264,10 @@ Interface listen address:
 	"log.socks5_handshake_failed": "socks5 handshake failed: %v",
 	"log.socks5_request_failed":   "socks5 request failed: %v",
 	"log.socks5_connect_failed":   "socks5 connect to %s failed: %v",
+	"log.http_listening":          "http proxy listening on %s",
+	"log.http_request_failed":     "http proxy request failed: %v",
+	"log.http_connect_failed":     "http proxy connect to %s failed: %v",
+	"log.http_forward_failed":     "http proxy forwarding failed: %v",
 
 	"err.cannot_listen_text": "cannot listen on %s: %v",
 	// Forwarding
@@ -270,6 +275,9 @@ Interface listen address:
 	"err.unsupported_socks_version": "unsupported socks version %d",
 	"err.unsupported_command":       "unsupported command %d",
 	"err.unsupported_address_type":  "unsupported address type %d",
+	"err.http_request_invalid":     "invalid http request: %v",
+	"err.http_method_unsupported":  "unsupported http method %s (only CONNECT)",
+	"err.http_target_invalid":      "invalid CONNECT target %q",
 
 	"err.autostart_unsupported":           "autostart is not supported on this platform",
 	"err.unknown_autostart_kind":          "unknown autostart kind %q, supported: %v",
@@ -353,6 +361,7 @@ Interface listen address:
 	"type.local":    "Local forward",
 	"type.remote":   "Remote forward",
 	"type.socks5":   "SOCKS5 proxy",
+	"type.http":     "HTTP proxy",
 	"auth.key":      "Key",
 	"auth.password": "Password",
 	"auth.agent":    "SSH Agent",

@@ -283,3 +283,165 @@ func TestSOCKS5FixedTarget(t *testing.T) {
 		t.Fatalf("unexpected body %q", body)
 	}
 }
+
+// TestHTTPConnect proxies a CONNECT request and forwards the tunnel data,
+// including bytes sent in the same packet as the request.
+func TestHTTPConnect(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "proxied http")
+	}))
+	defer backend.Close()
+
+	listen := freePort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stop, err := StartHTTP(ctx, fakeSSH{}, listen, "", func(string, ...any) {})
+	if err != nil {
+		t.Fatalf("start http proxy: %v", err)
+	}
+	defer stop()
+
+	conn := dialWithRetry(t, listen)
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(10 * time.Second))
+
+	// The request and the tunneled request go out together, so the proxy
+	// must not lose bytes its reader buffered past the headers.
+	req := "CONNECT " + backend.Listener.Addr().String() + " HTTP/1.1\r\n" +
+		"Host: " + backend.Listener.Addr().String() + "\r\n\r\n" +
+		"GET / HTTP/1.0\r\nHost: x\r\n\r\n"
+	if _, err := conn.Write([]byte(req)); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	br := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(br, nil)
+	if err != nil {
+		t.Fatalf("read connect response: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("connect status %d", resp.StatusCode)
+	}
+	resp2, err := http.ReadResponse(br, nil)
+	if err != nil {
+		t.Fatalf("read tunneled response: %v", err)
+	}
+	defer resp2.Body.Close()
+	body, _ := io.ReadAll(resp2.Body)
+	if !strings.Contains(string(body), "proxied http") {
+		t.Fatalf("unexpected body %q", body)
+	}
+}
+
+// A fixed target overrides the address of the CONNECT request.
+func TestHTTPFixedTarget(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "fixed http")
+	}))
+	defer backend.Close()
+
+	listen := freePort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stop, err := StartHTTP(ctx, fakeSSH{}, listen, backend.Listener.Addr().String(), func(string, ...any) {})
+	if err != nil {
+		t.Fatalf("start http proxy: %v", err)
+	}
+	defer stop()
+
+	conn := dialWithRetry(t, listen)
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(10 * time.Second))
+
+	if _, err := conn.Write([]byte("CONNECT 10.0.0.1:80 HTTP/1.1\r\n\r\nGET / HTTP/1.0\r\nHost: x\r\n\r\n")); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	br := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(br, nil)
+	if err != nil {
+		t.Fatalf("read connect response: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("connect status %d", resp.StatusCode)
+	}
+	resp2, err := http.ReadResponse(br, nil)
+	if err != nil {
+		t.Fatalf("read tunneled response: %v", err)
+	}
+	defer resp2.Body.Close()
+	body, _ := io.ReadAll(resp2.Body)
+	if !strings.Contains(string(body), "fixed http") {
+		t.Fatalf("unexpected body %q", body)
+	}
+}
+
+// A plain request with an absolute http:// URL is rewritten to origin form
+// and proxied; the connection is closed once the response is relayed.
+func TestHTTPPlainRequest(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/page" {
+			t.Errorf("backend path %q, want /page", r.URL.Path)
+		}
+		fmt.Fprint(w, "plain proxied")
+	}))
+	defer backend.Close()
+
+	listen := freePort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stop, err := StartHTTP(ctx, fakeSSH{}, listen, "", func(string, ...any) {})
+	if err != nil {
+		t.Fatalf("start http proxy: %v", err)
+	}
+	defer stop()
+
+	conn := dialWithRetry(t, listen)
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(10 * time.Second))
+
+	req := "GET http://" + backend.Listener.Addr().String() + "/page HTTP/1.1\r\n" +
+		"Host: " + backend.Listener.Addr().String() + "\r\n\r\n"
+	if _, err := conn.Write([]byte(req)); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "plain proxied") {
+		t.Fatalf("unexpected body %q", body)
+	}
+}
+
+// A plain request for an https:// URL cannot be forwarded without
+// terminating TLS; it is rejected.
+func TestHTTPRejectsHttpsPlainRequest(t *testing.T) {
+	listen := freePort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stop, err := StartHTTP(ctx, fakeSSH{}, listen, "", func(string, ...any) {})
+	if err != nil {
+		t.Fatalf("start http proxy: %v", err)
+	}
+	defer stop()
+
+	conn := dialWithRetry(t, listen)
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(10 * time.Second))
+
+	if _, err := conn.Write([]byte("GET https://example.com/ HTTP/1.1\r\nHost: example.com\r\n\r\n")); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	if resp.StatusCode != 405 {
+		t.Fatalf("status %d, want 405", resp.StatusCode)
+	}
+}

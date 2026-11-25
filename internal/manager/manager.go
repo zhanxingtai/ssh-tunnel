@@ -521,6 +521,8 @@ func (t *tunnel) runForward(ctx context.Context, conn client) error {
 		stop, err = forward.StartRemoteForward(ctx, conn, t.config.Listen, t.config.Target, logf)
 	case config.ForwardSocks5:
 		stop, err = forward.StartSOCKS5(ctx, conn, t.config.Listen, t.config.Target, logf)
+	case config.ForwardHTTP:
+		stop, err = forward.StartHTTP(ctx, conn, t.config.Listen, t.config.Target, logf)
 	default:
 		return i18n.E("err.unknown_tunnel_type", t.config.Type)
 	}

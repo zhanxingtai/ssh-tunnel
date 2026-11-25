@@ -457,6 +457,7 @@
         <option value="local" data-i18n="ui.type_local_option">本地转发（远端端口 → 本地）</option>
         <option value="remote" data-i18n="ui.type_remote_option">远程转发（本地端口 → 远端）</option>
         <option value="socks5" data-i18n="ui.type_socks5_option">动态代理 SOCKS5</option>
+        <option value="http" data-i18n="ui.type_http_option">动态代理 HTTP</option>
       </select></div>
       <div class="field full">
         <label id="t_listenlabel">监听地址</label>
@@ -588,7 +589,8 @@ function applyIcons(root) {
 const typeLabel = type => ({
   local: t('ui.type_local'),
   remote: t('ui.type_remote'),
-  socks5: t('ui.type_socks5')
+  socks5: t('ui.type_socks5'),
+  http: t('ui.type_http')
 }[type] || type);
 
 const stateLabel = state => ({
@@ -735,13 +737,13 @@ function hostCard(host) {
 function chipsOf(host) {
   const counts = host.counts || {};
   const chips = [];
-  for (const type of ['local', 'remote', 'socks5']) {
+  for (const type of ['local', 'remote', 'socks5', 'http']) {
     const count = counts[type] || 0;
     if (!count) continue;
     chips.push(`<span class="chip">${esc(typeLabel(type))} ${count}</span>`);
   }
   for (const [type, count] of Object.entries(counts)) {
-    if (['local', 'remote', 'socks5'].includes(type) || !count) continue;
+    if (['local', 'remote', 'socks5', 'http'].includes(type) || !count) continue;
     chips.push(`<span class="chip">${esc(type)} ${count}</span>`);
   }
   if (!chips.length) chips.push(`<span class="chip off">${esc(t('ui.no_forward'))}</span>`);
@@ -1213,8 +1215,8 @@ function tunnelTypeChanged() {
     targetPort.required = false;
   }
   // The address of a target may be left empty, the loopback address is used
-  // then. The target of a SOCKS5 proxy stays empty to keep it dynamic.
-  const dynamic = type === 'socks5';
+  // then. The target of a dynamic proxy (SOCKS5 or HTTP) stays empty.
+  const dynamic = type === 'socks5' || type === 'http';
   hint.textContent = dynamic ? '' : t('ui.target_default_hint');
   hint.classList.toggle('hidden', dynamic);
   updateListenHint();
@@ -1262,12 +1264,12 @@ async function saveTunnel() {
   const targetHostInput = document.getElementById('t_target_host');
   let targetHost = targetHostInput.value.trim();
   const targetPort = document.getElementById('t_target_port').value.trim();
-  if (type !== 'socks5' && !targetHost) {
+  if (type !== 'socks5' && type !== 'http' && !targetHost) {
     // An empty address points at the loopback address.
     targetHost = '127.0.0.1';
     targetHostInput.value = targetHost;
   }
-  if (type === 'socks5' && (!!targetHost !== !!targetPort)) {
+  if ((type === 'socks5' || type === 'http') && (!!targetHost !== !!targetPort)) {
     errEl.textContent = t('ui.target_pair_required');
     return;
   }

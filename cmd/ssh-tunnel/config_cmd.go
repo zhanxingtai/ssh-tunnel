@@ -637,7 +637,7 @@ type tunnelFlags struct {
 func (f *tunnelFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&f.name, "name", "", "显示名")
 	fs.StringVar(&f.host, "host", "", "所属主机（名称或标识）")
-	fs.StringVar(&f.tunnelType, "type", "", "类型：local / remote / socks5")
+	fs.StringVar(&f.tunnelType, "type", "", "类型：local / remote / socks5 / http")
 	fs.StringVar(&f.listen, "listen", "", "监听地址")
 	fs.StringVar(&f.target, "target", "", "目标地址")
 	fs.BoolVar(&f.autoStart, "auto-start", false, "自动启动")
